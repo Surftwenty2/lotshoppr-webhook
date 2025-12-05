@@ -1,19 +1,19 @@
 // File: api/tally-webhook.js
-// Node.js Serverless Function for Vercel
-// URL: https://lotshoppr-webhook.vercel.app/api/tally-webhook
 
-module.exports = (req, res) => {
-  // If you just open the URL in a browser (GET), show a friendly message
+module.exports = async function handler(req, res) {
+  // If someone opens the URL in a browser
   if (req.method !== "POST") {
     return res.status(200).json({
       ok: true,
-      message: "LotShoppr webhook is live. Send a POST from Tally."
+      message: "LotShoppr webhook is live — send a POST from Tally."
     });
   }
 
   try {
-    const payload = req.body;
-    const fields = payload?.data?.fields || [];
+    console.log("📥 Incoming Tally Webhook Payload:", req.body);
+
+    const payload = req.body || {};
+    const fields = payload.data?.fields || [];
 
     function getValue(key) {
       const f = fields.find((x) => x.key === key);
@@ -33,35 +33,34 @@ module.exports = (req, res) => {
     }
 
     const normalized = {
-      customer: {
-        firstName: getValue("question_oMPMO5"),
-        lastName: getValue("question_P5x50x"),
-        email: getValue("question_EQRQ02"),
-        zip: getValue("question_rA4AEX"),
-      },
+      firstName: getValue("question_oMPMO5"),
+      lastName: getValue("question_P5x50x"),
+      email: getValue("question_EQRQ02"),
+      zip: getValue("question_rA4AEX"),
+
       vehicle: {
-        year: parseInt(getValue("question_O5250k")),
+        color: getValue("question_GdGd0Q"),
+        year: getValue("question_O5250k"),
         make: getValue("question_V5e58N"),
         model: getValue("question_P5x50P"),
         trim: getValue("question_EQRQ0A"),
-        exteriorColor: getValue("question_GdGd0Q"),
-        interiorShade: getValue("question_rA4AEp"),
+        interior: getValue("question_rA4AEp"),
       },
-      deal: {
-        type: getValue("question_4x6xjd"),
-        milesPerYear: parseInt((getValue("question_jQRQxY") || "").replace(/\D/g, "")),
-        termMonths: parseInt((getValue("question_2NWNrg") || "").replace(/\D/g, "")),
-        downPayment: parseInt((getValue("question_xaqaZE") || "").replace(/\D/g, "")),
-        maxMonthlyPayment: parseInt((getValue("question_R5N5LQ") || "").replace(/\D/g, "")),
-      },
-      rawSubmissionId: payload?.data?.submissionId,
+
+      finance: {
+        method: getValue("question_4x6xjd"),
+        miles: getValue("question_jQRQxY"),
+        months: getValue("question_2NWNrg"),
+        down: getValue("question_xaqaZE"),
+        paymentCap: getValue("question_R5N5LQ")
+      }
     };
 
-    console.log("🔔 Normalized submission:", normalized);
+    console.log("✅ Normalized Lead:", normalized);
 
-    return res.status(200).json({ ok: true, normalized });
+    return res.status(200).json({ received: true, normalized });
   } catch (err) {
-    console.error("Webhook error:", err);
-    return res.status(500).json({ ok: false, error: err.message });
+    console.error("❌ Webhook Error:", err);
+    return res.status(500).json({ error: "Webhook processing failed" });
   }
 };
