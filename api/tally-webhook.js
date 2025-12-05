@@ -1,9 +1,23 @@
 // File: api/tally-webhook.js
 // URL: https://lotshoppr-webhook.vercel.app/api/tally-webhook
 
-const { Resend } = require("resend");
+console.log("🟢 [tally-webhook] module loaded");
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Try to require Resend and log clearly if that fails
+let ResendLib = null;
+try {
+  // eslint-disable-next-line global-require
+  const { Resend } = require("resend");
+  ResendLib = Resend;
+  console.log("🟢 [tally-webhook] Resend library loaded");
+} catch (e) {
+  console.error("🔴 [tally-webhook] Failed to require 'resend':", e);
+}
+
+const resend =
+  ResendLib && process.env.RESEND_API_KEY
+    ? new ResendLib(process.env.RESEND_API_KEY)
+    : null;
 
 // --- helper: random alias identity (name only, email stays the same) ---
 function generateAliasIdentity() {
@@ -103,10 +117,11 @@ function buildEmailText(normalized, alias) {
 }
 
 module.exports = async function handler(req, res) {
-  console.log("🔔 Webhook hit:", { method: req.method, url: req.url });
+  console.log("🔔 [tally-webhook] hit:", { method: req.method, url: req.url });
 
   // If someone just opens the URL in a browser, be friendly
   if (req.method !== "POST") {
+    console.log("ℹ️ [tally-webhook] non-POST request, returning info message");
     return res.status(200).json({
       ok: true,
       message: "LotShoppr webhook is live — send a POST from Tally."
@@ -115,7 +130,7 @@ module.exports = async function handler(req, res) {
 
   try {
     const payload = req.body || {};
-    console.log("📥 Raw Tally payload:", JSON.stringify(payload));
+    console.log("📥 [tally-webhook] Raw Tally payload:", JSON.stringify(payload));
 
     const fields = payload.data?.fields || [];
 
@@ -136,7 +151,7 @@ module.exports = async function handler(req, res) {
         interiorShade: getValue(fields, "question_rA4AEp")
       },
       deal: {
-        type: getValue(fields, "question_4x6xjd"), // Lease / Finance / Pay Cash
+        type: getValue(fields, "question_4x6xjd"),
         milesPerYear:
           parseInt((getValue(fields, "question_jQRQxY") || "").replace(/\D/g, "")) || null,
         termMonths:
@@ -149,11 +164,10 @@ module.exports = async function handler(req, res) {
       rawSubmissionId: payload.data?.submissionId
     };
 
-    console.log("✅ Normalized submission:", normalized);
+    console.log("✅ [tally-webhook] Normalized submission:", normalized);
 
-    // --- alias name for this email ---
     const alias = generateAliasIdentity();
-    console.log("🧑 Alias identity:", alias);
+    console.log("🧑 [tally-webhook] Alias identity:", alias);
 
     const senderEmail = process.env.SENDER_EMAIL || "WebLeads@LotShoppr.com";
     const dealerEmail = process.env.DEALER_TEST_EMAIL || "WebLeads@LotShoppr.com";
@@ -174,21 +188,46 @@ module.exports = async function handler(req, res) {
       ? `Quote request for ${carLine}`
       : "Vehicle quote request";
 
-    // ---- Resend call with explicit { data, error } ----
-    const { data, error } = await resend.emails.send({
-      from: `${alias.first} ${alias.last} <onboarding@resend.dev>`,
-      to: [dealerEmail],
-      subject,
-      html: htmlBody,
-      reply_to: senderEmail
+    console.log("📧 [tally-webhook] Prepared email:", {
+      fromName: `${alias.first} ${alias.last}`,
+      from: "onboarding@resend.dev",
+      replyTo: senderEmail,
+      to: dealerEmail,
+      subject
     });
 
-    if (error) {
-      console.error("❌ Resend error:", error);
-      return res.status(500).json({ ok: false, error });
+    if (!resend) {
+      console.error(
+        "🔴 [tally-webhook] Resend client not initialized. " +
+          `Has library: ${!!ResendLib}, has API key: ${!!process.env.RESEND_API_KEY}`
+      );
+
+      return res.status(500).json({
+        ok: false,
+        error: "Resend is not configured on the server"
+      });
     }
 
-    console.log("✉️ Resend data:", data);
+    console.log("🚀 [tally-webhook] Sending email via Resend…");
+
+    let sendResult;
+    try {
+      sendResult = await resend.emails.send({
+        from: `${alias.first} ${alias.last} <onboarding@resend.dev>`,
+        to: [dealerEmail],
+        subject,
+        html: htmlBody,
+        reply_to: senderEmail
+      });
+      console.log("✉️ [tally-webhook] Resend sendResult:", sendResult);
+    } catch (sendErr) {
+      console.error("🔴 [tally-webhook] Resend send error:", sendErr);
+      return res.status(500).json({
+        ok: false,
+        error: "Failed to send email via Resend",
+        details: sendErr?.message || String(sendErr)
+      });
+    }
 
     return res.status(200).json({
       ok: true,
@@ -199,7 +238,11 @@ module.exports = async function handler(req, res) {
         replyTo: senderEmail,
         to: dealerEmail,
         subject,
-        preview: textBody.slice(0, 200),
-        resendId: data?.id || null
+        resendId: sendResult?.id || null
       }
     });
+  } catch (err) {
+    console.error("❌ [tally-webhook] Webhook error:", err);
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+};
