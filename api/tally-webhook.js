@@ -174,10 +174,8 @@ module.exports = async function handler(req, res) {
       ? `Quote request for ${carLine}`
       : "Vehicle quote request";
 
-    // --- IMPORTANT: to avoid domain-verification issues while testing,
-    // use Resend's default sender, but keep Reply-To as WebLeads@LotShoppr.com.
-    // Once lotshoppr.com is verified in Resend, change `from` to use senderEmail.
-    const sendResult = await resend.emails.send({
+    // ---- Resend call with explicit { data, error } ----
+    const { data, error } = await resend.emails.send({
       from: `${alias.first} ${alias.last} <onboarding@resend.dev>`,
       to: [dealerEmail],
       subject,
@@ -185,7 +183,12 @@ module.exports = async function handler(req, res) {
       reply_to: senderEmail
     });
 
-    console.log("✉️ Resend sendResult:", sendResult);
+    if (error) {
+      console.error("❌ Resend error:", error);
+      return res.status(500).json({ ok: false, error });
+    }
+
+    console.log("✉️ Resend data:", data);
 
     return res.status(200).json({
       ok: true,
@@ -197,12 +200,6 @@ module.exports = async function handler(req, res) {
         to: dealerEmail,
         subject,
         preview: textBody.slice(0, 200),
-        resendId: sendResult?.id || null
+        resendId: data?.id || null
       }
     });
-  } catch (err) {
-    console.error("❌ Webhook error:", err);
-    return res.status(500).json({ ok: false, error: err.message });
-  }
-};
-
