@@ -1,25 +1,12 @@
 // File: api/tally-webhook.js
-// URL: https://lotshoppr-webhook.vercel.app/api/tally-webhook
 
-console.log("🟢 [tally-webhook] module loaded");
+const { Resend } = require("resend");
 
-// Try to require Resend and log clearly if that fails
-let ResendLib = null;
-try {
-  // eslint-disable-next-line global-require
-  const { Resend } = require("resend");
-  ResendLib = Resend;
-  console.log("🟢 [tally-webhook] Resend library loaded");
-} catch (e) {
-  console.error("🔴 [tally-webhook] Failed to require 'resend':", e);
-}
+const resend = new Resend(process.env.RESEND_API_KEY);
 
-const resend =
-  ResendLib && process.env.RESEND_API_KEY
-    ? new ResendLib(process.env.RESEND_API_KEY)
-    : null;
-
-// --- helper: random alias identity (name only, email stays the same) ---
+// ------------------------------
+// Random Alias Name Generator
+// ------------------------------
 function generateAliasIdentity() {
   const firstNames = [
     "Alex", "Jordan", "Taylor", "Casey", "Sam",
@@ -41,7 +28,9 @@ function generateAliasIdentity() {
   return { first, last };
 }
 
-// --- helper: basic field extractor for Tally payload ---
+// ------------------------------
+// Extract Value From Tally
+// ------------------------------
 function getValue(fields, key) {
   const f = fields.find((x) => x.key === key);
   if (!f) return null;
@@ -59,7 +48,9 @@ function getValue(fields, key) {
   return null;
 }
 
-// --- build email body: professional + firm negotiator (A/C mix) ---
+// ------------------------------
+// Build Email Body
+// ------------------------------
 function buildEmailText(normalized, alias) {
   const carLine = [
     normalized.vehicle.year,
@@ -97,7 +88,7 @@ function buildEmailText(normalized, alias) {
     : "";
 
   const lines = [
-    `${intro}`,
+    intro,
     "",
     `My name is ${alias.first} ${alias.last} and I’m currently shopping for a ${carLine}.`,
     [colorLine, interiorLine].filter(Boolean).join(" "),
@@ -116,12 +107,13 @@ function buildEmailText(normalized, alias) {
   return lines.filter(Boolean).join("\n");
 }
 
+// ------------------------------
+// Webhook Handler
+// ------------------------------
 module.exports = async function handler(req, res) {
-  console.log("🔔 [tally-webhook] hit:", { method: req.method, url: req.url });
+  console.log("🔔 Webhook hit:", { method: req.method, url: req.url });
 
-  // If someone just opens the URL in a browser, be friendly
   if (req.method !== "POST") {
-    console.log("ℹ️ [tally-webhook] non-POST request, returning info message");
     return res.status(200).json({
       ok: true,
       message: "LotShoppr webhook is live — send a POST from Tally."
@@ -130,11 +122,11 @@ module.exports = async function handler(req, res) {
 
   try {
     const payload = req.body || {};
-    console.log("📥 [tally-webhook] Raw Tally payload:", JSON.stringify(payload));
+    console.log("📥 Raw Tally payload:", JSON.stringify(payload));
 
     const fields = payload.data?.fields || [];
 
-    // --- normalize your exact Tally question keys ---
+    // Normalize data
     const normalized = {
       customer: {
         firstName: getValue(fields, "question_oMPMO5"),
@@ -160,17 +152,20 @@ module.exports = async function handler(req, res) {
           parseInt((getValue(fields, "question_xaqaZE") || "").replace(/\D/g, "")) || null,
         maxMonthlyPayment:
           parseInt((getValue(fields, "question_R5N5LQ") || "").replace(/\D/g, "")) || null
-      },
-      rawSubmissionId: payload.data?.submissionId
+      }
     };
 
-    console.log("✅ [tally-webhook] Normalized submission:", normalized);
+    console.log("✅ Normalized submission:", normalized);
 
+    // Generate alias name
     const alias = generateAliasIdentity();
-    console.log("🧑 [tally-webhook] Alias identity:", alias);
+    console.log("🧑 Alias identity:", alias);
 
-    const senderEmail = process.env.SENDER_EMAIL || "WebLeads@LotShoppr.com";
-    const dealerEmail = process.env.DEALER_TEST_EMAIL || "WebLeads@LotShoppr.com";
+    // Where the email will be sent
+    const dealerEmail = process.env.DEALER_TEST_EMAIL;
+
+    // Use verified domain sender
+    const senderEmail = "WebLeads@lotshoppr.com";
 
     const textBody = buildEmailText(normalized, alias);
     const htmlBody = textBody.replace(/\n/g, "<br>");
@@ -188,61 +183,38 @@ module.exports = async function handler(req, res) {
       ? `Quote request for ${carLine}`
       : "Vehicle quote request";
 
-    console.log("📧 [tally-webhook] Prepared email:", {
+    console.log("📧 Prepared email:", {
       fromName: `${alias.first} ${alias.last}`,
-      from: "onboarding@resend.dev",
+      from: senderEmail,
       replyTo: senderEmail,
       to: dealerEmail,
       subject
     });
 
-    if (!resend) {
-      console.error(
-        "🔴 [tally-webhook] Resend client not initialized. " +
-          `Has library: ${!!ResendLib}, has API key: ${!!process.env.RESEND_API_KEY}`
-      );
+    console.log("🚀 Sending email via Resend…");
 
-      return res.status(500).json({
-        ok: false,
-        error: "Resend is not configured on the server"
-      });
-    }
+    const sendResult = await resend.emails.send({
+      from: `${alias.first} ${alias.last} <${senderEmail}>`,
+      to: [dealerEmail],
+      subject,
+      html: htmlBody,
+      reply_to: senderEmail
+    });
 
-    console.log("🚀 [tally-webhook] Sending email via Resend…");
-
-    let sendResult;
-    try {
-      sendResult = await resend.emails.send({
-        from: `${alias.first} ${alias.last} <onboarding@resend.dev>`,
-        to: [dealerEmail],
-        subject,
-        html: htmlBody,
-        reply_to: senderEmail
-      });
-      console.log("✉️ [tally-webhook] Resend sendResult:", sendResult);
-    } catch (sendErr) {
-      console.error("🔴 [tally-webhook] Resend send error:", sendErr);
-      return res.status(500).json({
-        ok: false,
-        error: "Failed to send email via Resend",
-        details: sendErr?.message || String(sendErr)
-      });
-    }
+    console.log("✉️ Resend sendResult:", sendResult);
 
     return res.status(200).json({
       ok: true,
+      sent: true,
       alias,
-      normalized,
-      email: {
-        from: "onboarding@resend.dev",
-        replyTo: senderEmail,
-        to: dealerEmail,
-        subject,
-        resendId: sendResult?.id || null
-      }
+      subject,
+      to: dealerEmail,
+      resendId: sendResult?.id || null
     });
+
   } catch (err) {
-    console.error("❌ [tally-webhook] Webhook error:", err);
+    console.error("❌ Webhook error:", err);
     return res.status(500).json({ ok: false, error: err.message });
   }
 };
+
