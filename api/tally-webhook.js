@@ -5,29 +5,29 @@ const { Resend } = require("resend");
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// --- helper: random alias identity (just the buyer's name in the email text) ---
+// --- helper: random alias identity (name only, email stays the same) ---
 function generateAliasIdentity() {
   const firstNames = [
     "Alex", "Jordan", "Taylor", "Casey", "Sam",
     "Chris", "Morgan", "Riley", "Jamie", "Drew",
-    "Logan", "Cameron", "Avery", "Quinn"
+    "Logan", "Cameron", "Avery", "Quinn", "Ryan",
+    "Jess", "Sydney", "Elliot", "Blake"
   ];
 
   const lastNames = [
     "Parker", "Reed", "Hayes", "Bennett", "Cole",
     "Miller", "Lopez", "Foster", "Turner", "Gray",
-    "Collins", "Diaz", "Harper", "Wells"
+    "Collins", "Diaz", "Harper", "Wells", "Brooks",
+    "Ramirez", "Howard", "Russell", "Ward"
   ];
 
-  const first =
-    firstNames[Math.floor(Math.random() * firstNames.length)];
-  const last =
-    lastNames[Math.floor(Math.random() * lastNames.length)];
+  const first = firstNames[Math.floor(Math.random() * firstNames.length)];
+  const last = lastNames[Math.floor(Math.random() * lastNames.length)];
 
   return { first, last };
 }
 
-// --- helper: basic field extractor for Tally ---
+// --- helper: basic field extractor for Tally payload ---
 function getValue(fields, key) {
   const f = fields.find((x) => x.key === key);
   if (!f) return null;
@@ -45,7 +45,7 @@ function getValue(fields, key) {
   return null;
 }
 
-// --- helper: build a “human-ish” email with a little variation ---
+// --- build email body: professional + firm negotiator (A/C mix) ---
 function buildEmailText(normalized, alias) {
   const carLine = [
     normalized.vehicle.year,
@@ -56,14 +56,7 @@ function buildEmailText(normalized, alias) {
     .filter(Boolean)
     .join(" ");
 
-  const intros = [
-    `Hi there,`,
-    `Hello,`,
-    `Good afternoon,`,
-    `Hey there,`
-  ];
-
-  const intro = intros[Math.floor(Math.random() * intros.length)];
+  const intro = "Hi there,";
 
   const colorLine = normalized.vehicle.color
     ? `Ideally in ${normalized.vehicle.color.toLowerCase()}.`
@@ -74,45 +67,36 @@ function buildEmailText(normalized, alias) {
     : "";
 
   const typeLine = normalized.deal.type
-    ? `I’m planning to ${normalized.deal.type.toLowerCase()}.`
+    ? `I’m looking to ${normalized.deal.type.toLowerCase()}.`
     : "";
 
   const milesLine = normalized.deal.milesPerYear
-    ? `I drive about ${normalized.deal.milesPerYear.toLocaleString()} miles a year.`
+    ? `I drive about ${normalized.deal.milesPerYear.toLocaleString()} miles per year.`
     : "";
 
   const downLine = normalized.deal.downPayment
-    ? `I can put around $${normalized.deal.downPayment.toLocaleString()} down.`
+    ? `I’m planning around $${normalized.deal.downPayment.toLocaleString()} down.`
     : "";
 
   const paymentLine = normalized.deal.maxMonthlyPayment
-    ? `Ideally I’d like to stay under $${normalized.deal.maxMonthlyPayment.toLocaleString()} a month if possible.`
+    ? `To make this work, I need to be under $${normalized.deal.maxMonthlyPayment.toLocaleString()} per month.`
     : "";
-
-  const closings = [
-    `Thanks,`,
-    `Thank you,`,
-    `Really appreciate it,`,
-    `Best regards,`
-  ];
-  const closing = closings[Math.floor(Math.random() * closings.length)];
-
-  const nameLine = `${alias.first} ${alias.last}`;
 
   const lines = [
     `${intro}`,
     "",
-    `My name is ${nameLine} and I’m shopping for a ${carLine}.`,
+    `My name is ${alias.first} ${alias.last} and I’m currently shopping for a ${carLine}.`,
     [colorLine, interiorLine].filter(Boolean).join(" "),
     "",
-    [typeLine, milesLine, downLine, paymentLine]
-      .filter(Boolean)
-      .join(" "),
+    [typeLine, milesLine, downLine, paymentLine].filter(Boolean).join(" "),
     "",
-    `Do you have anything that fits this in stock, and what kind of out-the-door numbers could you do?`,
+    "I’m reaching out to a few local dealers and can move quickly if the numbers make sense.",
+    "Can you please send me your best out-the-door price on this vehicle (including all taxes, fees, and any dealer-installed add-ons)?",
     "",
-    `${closing}`,
-    `${alias.first}`
+    "Email is my preferred way to communicate for now.",
+    "",
+    "Thanks in advance for your help,",
+    `${alias.first} ${alias.last}`
   ];
 
   return lines.filter(Boolean).join("\n");
@@ -121,7 +105,7 @@ function buildEmailText(normalized, alias) {
 module.exports = async function handler(req, res) {
   console.log("🔔 Webhook hit:", { method: req.method, url: req.url });
 
-  // If someone hits this in a browser, just show a friendly message
+  // If someone just opens the URL in a browser, be friendly
   if (req.method !== "POST") {
     return res.status(200).json({
       ok: true,
@@ -135,7 +119,7 @@ module.exports = async function handler(req, res) {
 
     const fields = payload.data?.fields || [];
 
-    // --- normalize submission (using your actual Tally keys) ---
+    // --- normalize your exact Tally question keys ---
     const normalized = {
       customer: {
         firstName: getValue(fields, "question_oMPMO5"),
@@ -152,42 +136,30 @@ module.exports = async function handler(req, res) {
         interiorShade: getValue(fields, "question_rA4AEp")
       },
       deal: {
-        type: getValue(fields, "question_4x6xjd"), // Lease / Finance / Cash
+        type: getValue(fields, "question_4x6xjd"), // Lease / Finance / Pay Cash
         milesPerYear:
-          parseInt(
-            (getValue(fields, "question_jQRQxY") || "").replace(/\D/g, "")
-          ) || null,
+          parseInt((getValue(fields, "question_jQRQxY") || "").replace(/\D/g, "")) || null,
         termMonths:
-          parseInt(
-            (getValue(fields, "question_2NWNrg") || "").replace(/\D/g, "")
-          ) || null,
+          parseInt((getValue(fields, "question_2NWNrg") || "").replace(/\D/g, "")) || null,
         downPayment:
-          parseInt(
-            (getValue(fields, "question_xaqaZE") || "").replace(/\D/g, "")
-          ) || null,
+          parseInt((getValue(fields, "question_xaqaZE") || "").replace(/\D/g, "")) || null,
         maxMonthlyPayment:
-          parseInt(
-            (getValue(fields, "question_R5N5LQ") || "").replace(/\D/g, "")
-          ) || null
+          parseInt((getValue(fields, "question_R5N5LQ") || "").replace(/\D/g, "")) || null
       },
       rawSubmissionId: payload.data?.submissionId
     };
 
     console.log("✅ Normalized submission:", normalized);
 
-    // --- generate “customer” name ---
+    // --- alias name for this email ---
     const alias = generateAliasIdentity();
     console.log("🧑 Alias identity:", alias);
 
-    const senderEmail =
-      process.env.SENDER_EMAIL || "WebLeads@LotShoppr.com";
-    const dealerEmail =
-      process.env.DEALER_TEST_EMAIL || "WebLeads@LotShoppr.com";
+    const senderEmail = process.env.SENDER_EMAIL || "WebLeads@LotShoppr.com";
+    const dealerEmail = process.env.DEALER_TEST_EMAIL || "WebLeads@LotShoppr.com";
 
     const textBody = buildEmailText(normalized, alias);
-    const htmlBody = textBody
-      .replace(/\n/g, "<br>")
-      .replace(/  +/g, " ");
+    const htmlBody = textBody.replace(/\n/g, "<br>");
 
     const carLine = [
       normalized.vehicle.year,
@@ -199,12 +171,14 @@ module.exports = async function handler(req, res) {
       .join(" ");
 
     const subject = carLine
-      ? `Question about a ${carLine}`
-      : "Vehicle availability inquiry";
+      ? `Quote request for ${carLine}`
+      : "Vehicle quote request";
 
-    // --- Send the email via Resend ---
+    // --- IMPORTANT: to avoid domain-verification issues while testing,
+    // use Resend's default sender, but keep Reply-To as WebLeads@LotShoppr.com.
+    // Once lotshoppr.com is verified in Resend, change `from` to use senderEmail.
     const sendResult = await resend.emails.send({
-      from: `LotShoppr Web Lead <${senderEmail}>`,
+      from: `${alias.first} ${alias.last} <onboarding@resend.dev>`,
       to: [dealerEmail],
       subject,
       html: htmlBody,
@@ -218,7 +192,8 @@ module.exports = async function handler(req, res) {
       alias,
       normalized,
       email: {
-        from: senderEmail,
+        from: "onboarding@resend.dev",
+        replyTo: senderEmail,
         to: dealerEmail,
         subject,
         preview: textBody.slice(0, 200),
@@ -230,3 +205,4 @@ module.exports = async function handler(req, res) {
     return res.status(500).json({ ok: false, error: err.message });
   }
 };
+
