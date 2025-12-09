@@ -1,88 +1,85 @@
 // File: api/tally-webhook.js
 
 const { Resend } = require("resend");
+
+// Resend client – make sure RESEND_API_KEY is set in Vercel
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// -------------------------------------------------------
-// Helper: Extract field value from Tally payload
-// -------------------------------------------------------
+// Helper: pull a value from a Tally field by key
 function getField(fields, key) {
-  const field = fields.find(f => f.key === key);
+  const field = fields.find((f) => f.key === key);
   if (!field) return null;
 
-  // Dropdowns return array of IDs, so also return the text
+  // Dropdowns: value is an array of IDs, use the option text
   if (Array.isArray(field.value) && field.options) {
     const selectedId = field.value[0];
-    const match = field.options.find(o => o.id === selectedId);
+    const match = field.options.find((o) => o.id === selectedId);
     return match ? match.text : null;
   }
 
   return field.value ?? null;
 }
 
-// -------------------------------------------------------
-// Build the summary email that goes to *you* (the owner)
-// -------------------------------------------------------
-function buildOwnerEmail(formData) {
+// Build a readable internal email
+function buildAdminEmail(form) {
   return `
-A new LotShoppr submission just came in:
+New LotShoppr submission
 
-Name: ${formData.firstName} ${formData.lastName}
-Email: ${formData.email}
-Zip Code: ${formData.zip}
+Customer
+--------
+Name: ${form.firstName || ""} ${form.lastName || ""}
+Email: ${form.email || ""}
+Zip: ${form.zip || ""}
 
-----
+Vehicle
+-------
+Year: ${form.year || ""}
+Make: ${form.make || ""}
+Model: ${form.model || ""}
+Trim: ${form.trim || ""}
+Color: ${form.color || ""}
+Interior: ${form.interior || ""}
 
-Vehicle Requested:
-- ${formData.year} ${formData.make} ${formData.model} ${formData.trim}
-- Color: ${formData.color}
-- Interior: ${formData.interior}
-
-Deal Type: ${formData.dealType}
-
-${
-  formData.dealType === "Lease"
-    ? `
-Lease Terms:
-- Miles: ${formData.leaseMiles}
-- Months: ${formData.leaseMonths}
-- Down: ${formData.leaseDown}
-- Max Payment: ${formData.leaseMaxPayment}
-`
-    : ""
-}
+Deal Type
+---------
+Type: ${form.dealType || ""}
 
 ${
-  formData.dealType === "Finance"
-    ? `
-Finance Terms:
-- Down: ${formData.financeDown}
-- Max Payment: ${formData.financeMaxPayment}
-- Months: ${formData.financeMonths}
+  form.dealType === "Lease"
+    ? `Lease Terms
+-----------
+Miles per year: ${form.leaseMiles || ""}
+Months: ${form.leaseMonths || ""}
+Down payment: ${form.leaseDown || ""}
+Max monthly payment: ${form.leaseMaxPayment || ""}
+
 `
     : ""
-}
+}${
+    form.dealType === "Finance"
+      ? `Finance Terms
+-------------
+Down payment: ${form.financeDown || ""}
+Max monthly payment: ${form.financeMaxPayment || ""}
+Months: ${form.financeMonths || ""}
 
-${
-  formData.dealType === "Pay Cash"
-    ? `
-Cash Deal:
-- Max Cash Price: ${formData.cashMax}
 `
-    : ""
+      : ""
+  }${
+    form.dealType === "Pay Cash"
+      ? `Cash Deal
+---------
+Max cash price: ${form.cashMax || ""}
+
+`
+      : ""
+  }Raw JSON
+---------
+${JSON.stringify(form, null, 2)}
+`.trim();
 }
 
------------------------------------
-
-Full JSON (for debugging):
-${JSON.stringify(formData, null, 2)}
-
-  `;
-}
-
-// -------------------------------------------------------
-// API Handler
-// -------------------------------------------------------
+// Vercel serverless function
 module.exports = async (req, res) => {
   try {
     if (req.method !== "POST") {
@@ -92,9 +89,7 @@ module.exports = async (req, res) => {
     const payload = req.body;
     const fields = payload?.data?.fields || [];
 
-    // -------------------------------------------------------
-    // Extract all Tally fields using their actual keys
-    // -------------------------------------------------------
+    // Map Tally keys -> our form model
     const formData = {
       firstName: getField(fields, "question_oMPMO5"),
       color: getField(fields, "question_GdGd0Q"),
@@ -106,13 +101,13 @@ module.exports = async (req, res) => {
 
       dealType: getField(fields, "question_4x6xjd"),
 
-      // Lease fields (may be null)
+      // Lease
       leaseMiles: getField(fields, "question_jQRQxY"),
       leaseMonths: getField(fields, "question_2NWNrg"),
       leaseDown: getField(fields, "question_xaqaZE"),
       leaseMaxPayment: getField(fields, "question_R5N5LQ"),
 
-      // Finance fields (may be null)
+      // Finance
       financeDown: getField(fields, "question_oMPMON"),
       financeMaxPayment: getField(fields, "question_GdGd0O"),
       financeMonths: getField(fields, "question_O5250M"),
@@ -120,7 +115,7 @@ module.exports = async (req, res) => {
       // Cash
       cashMax: getField(fields, "question_V5e586"),
 
-      // Final contact fields
+      // Contact
       lastName: getField(fields, "question_P5x50x"),
       email: getField(fields, "question_EQRQ02"),
       zip: getField(fields, "question_rA4AEX"),
@@ -128,20 +123,26 @@ module.exports = async (req, res) => {
 
     console.log("Parsed Form Data:", formData);
 
-    // -------------------------------------------------------
-    // Send YOU an email with the new submission
-    // -------------------------------------------------------
-    await resend.emails.send({
-      from: "LotShoppr <no-reply@lotshoppr.com>",
-      to: "sean@lotshoppr.com",
+    // Send to BOTH your Gmail and the LotShoppr address
+    // so you can definitely see at least one of them.
+    const toRecipients = [
+      "Srboyan@gmail.com",     // your Gmail (guaranteed inbox you can see)
+      "sean@lotshoppr.com",    // your branded address
+    ];
+
+    const result = await resend.emails.send({
+      // IMPORTANT: no more "no-reply" – use a real sender
+      from: "LotShoppr <sean@lotshoppr.com>",
+      to: toRecipients,
       subject: "🚗 New LotShoppr Submission",
-      text: buildOwnerEmail(formData),
+      text: buildAdminEmail(formData),
     });
+
+    console.log("Resend email result:", result);
 
     return res.json({ ok: true });
   } catch (err) {
-    console.error("Webhook processing failed:", err);
+    console.error("Webhook error:", err);
     return res.status(500).json({ ok: false, error: "webhook_failure" });
   }
 };
-
