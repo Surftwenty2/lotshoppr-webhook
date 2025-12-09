@@ -121,51 +121,73 @@ function buildDealerSubject(form) {
 
   const subjects = [
     `${year} ${make} ${model} ${trim} – quote request`,
-    `Quick quote on a ${year} ${make} ${model}`,
-    `Checking availability on a ${year} ${make} ${model}`,
-    `Pricing on a ${year} ${make} ${model}?`,
+    `Quote on a ${year} ${make} ${model}`,
+    `Checking numbers on a ${year} ${make} ${model}`,
+    `OTD pricing on a ${year} ${make} ${model}?`,
   ];
   return pickRandom(subjects);
 }
 
-// One-line summary of the deal type, tuned to sound like a real buyer
-function getDealLine(form) {
+// Build a clear, non-ambiguous deal block
+function getDealBlock(form) {
+  const lines = [];
+
   if (form.dealType === "Lease") {
-    const miles = form.leaseMiles || "standard miles";
-    const term = form.leaseMonths ? `${form.leaseMonths} months` : "a typical term";
-    const payment = form.leaseMaxPayment || null;
+    const miles = form.leaseMiles || null;
+    const term = form.leaseMonths || null;
     const down = form.leaseDown || null;
+    const payment = form.leaseMaxPayment || null;
 
-    let line = `Looking to lease it, ${miles}/yr over about ${term}`;
-    if (down) line += ` with roughly ${down} down`;
-    if (payment) line += ` and a target payment around ${payment}/mo`;
-    line += ".";
-    return line;
-  }
-
-  if (form.dealType === "Finance") {
-    const term = form.financeMonths ? `${form.financeMonths} months` : "a standard term";
-    const payment = form.financeMaxPayment || null;
-    const down = form.financeDown || null;
-
-    let line = `Planning to finance over about ${term}`;
-    if (down) line += ` with around ${down} down`;
-    if (payment) line += ` and a target payment near ${payment}/mo`;
-    line += ".";
-    return line;
-  }
-
-  if (form.dealType === "Pay Cash") {
-    if (form.cashMax) {
-      return `Cash buyer, trying to stay around ${form.cashMax} out-the-door (taxes/fees included).`;
+    lines.push("Here’s the lease structure I’m looking for:");
+    if (miles || term) {
+      let line = "- Lease:";
+      if (miles) line += ` ${miles} miles/year`;
+      if (term) line += `${miles ? ", " : " "}${term} months`;
+      lines.push(line);
     }
-    return "Cash buyer, just need a clean out-the-door number.";
+    if (down) {
+      lines.push(`- Total due at signing: ${down}`);
+    }
+    if (payment) {
+      lines.push(`- Monthly payment: ${payment} or lower`);
+    }
+  } else if (form.dealType === "Finance") {
+    const term = form.financeMonths || null;
+    const down = form.financeDown || null;
+    const payment = form.financeMaxPayment || null;
+
+    lines.push("Here’s the finance structure I’m targeting:");
+    if (term) {
+      lines.push(`- Term: ${term} months`);
+    }
+    if (down) {
+      lines.push(`- Down payment: ${down}`);
+    }
+    if (payment) {
+      lines.push(`- Monthly payment: ${payment} or lower`);
+    }
+  } else if (form.dealType === "Pay Cash") {
+    lines.push("Here’s what I’m targeting:");
+    if (form.cashMax) {
+      lines.push(
+        `- Cash buyer: out-the-door price at or under ${form.cashMax} (tax, title, fees included)`
+      );
+    } else {
+      lines.push(
+        "- Cash buyer: need a clear out-the-door price (tax, title, fees included)"
+      );
+    }
+  } else {
+    lines.push("Here’s what I’m looking for:");
+    lines.push(
+      "- Straightforward out-the-door number with standard fees only"
+    );
   }
 
-  return "Just looking for a straightforward out-the-door number on something that matches.";
+  return lines.join("\n");
 }
 
-// Main dealer body: short, assertive, “knows their stuff” with a couple longer variants
+// Main dealer body: short, assertive, with a couple longer variants
 function buildDealerBody(form) {
   const first = form.firstName || "";
   const last = form.lastName || "";
@@ -178,13 +200,13 @@ function buildDealerBody(form) {
   const interior = form.interior || "any interior";
   const email = form.email || "";
   const zip = form.zip || "";
-  const dealLine = getDealLine(form);
+  const dealBlock = getDealBlock(form);
 
-  const carLineShort = `Looking for a ${year} ${make} ${model} ${trim} in ${color} / ${interior}.`;
-  const carLineAlt = `Interested in a ${year} ${make} ${model} ${trim} — ${color} exterior, ${interior} interior.`;
+  const carLine = `I’m interested in a ${year} ${make} ${model} ${trim} in ${color} with a ${interior} interior.`;
+  const carLineAlt = `Looking at a ${year} ${make} ${model} ${trim} — ${color} exterior, ${interior} interior.`;
 
-  const contactShort = email
-    ? `You can reply here or reach me at ${email}.`
+  const contactLine = email
+    ? `You can reply here or email me at ${email}.`
     : `You can reply directly to this email.`;
 
   // --- Short, assertive variants ---
@@ -192,11 +214,12 @@ function buildDealerBody(form) {
   const templateShort1 = `
 Hi there,
 
-${carLineShort}
-${dealLine}
-If you have one in stock or incoming, please send your best out-the-door number.
+${carLine}
+${dealBlock}
 
-${contactShort}
+If you can meet this on something you have in stock or incoming, please send a written out-the-door quote.
+
+${contactLine}
 
 Thanks,
 ${fullName || "Thanks"}
@@ -205,11 +228,12 @@ ${zip ? `Zip code: ${zip}` : ""}`.trim();
   const templateShort2 = `
 Hello,
 
-Can you check availability on a ${year} ${make} ${model} ${trim} in ${color} with a ${interior} interior?
-${dealLine}
-If you have anything close, I'd like to see your OTD pricing.
+${carLineAlt}
+${dealBlock}
 
-${contactShort}
+If you have a unit that fits this, I’d like your best OTD number based on those terms.
+
+${contactLine}
 
 ${fullName || "Thanks"}
 ${zip ? `Zip: ${zip}` : ""}`.trim();
@@ -217,26 +241,29 @@ ${zip ? `Zip: ${zip}` : ""}`.trim();
   const templateShort3 = `
 Hey,
 
-Quick quote request on a ${year} ${make} ${model} ${trim} (${color} / ${interior}).
-${dealLine}
-Please send your best out-the-door price if you have something that matches.
+I’m pricing a ${year} ${make} ${model} ${trim} (${color} / ${interior}).
+${dealBlock}
 
-${contactShort}
+Please send your best out-the-door price that hits these numbers.
+
+${contactLine}
 
 Thanks,
 ${fullName || "Thanks"}
 ${zip ? `Zip: ${zip}` : ""}`.trim();
 
-  // --- Longer “I know my stuff” variants for variance ---
+  // --- Longer “I know my numbers” variants ---
 
   const templateLong1 = `
 Hi there,
 
-I'm reaching out to get numbers on a ${year} ${make} ${model} ${trim} — ${color} outside, ${interior} inside. ${dealLine}
+I’m lining up numbers on a ${year} ${make} ${model} ${trim} in ${color} with a ${interior} interior.
 
-I'm checking a few stores and just need a straightforward out-the-door quote (no add-ons I didn't ask for). If you have one on the ground or inbound that fits, I'd appreciate your best figure.
+${dealBlock}
 
-${contactShort}
+I’m talking to a few stores and just want a straight OTD quote that matches this structure—no extras I didn’t ask for. If you have something on the ground or inbound that fits, please send your numbers.
+
+${contactLine}
 
 Thanks,
 ${fullName || "Thanks"}
@@ -245,11 +272,13 @@ ${zip ? `Zip code: ${zip}` : ""}`.trim();
   const templateLong2 = `
 Good afternoon,
 
-I'm lining up pricing on a ${year} ${make} ${model} ${trim} in ${color} with a ${interior} interior. ${dealLine}
+I’m working up a deal on a ${year} ${make} ${model} ${trim} (${color} / ${interior}).
 
-I'm reaching out to a few dealers and just looking for a clean OTD quote so I can compare. If you have something that fits (or close), please include any adds you can't remove so I can look at everything side by side.
+${dealBlock}
 
-${contactShort}
+I’m comparing offers, so I need a clear out-the-door quote based on those terms. If there are adds you can’t remove, include them in the breakdown so I can see the full picture.
+
+${contactLine}
 
 Thanks,
 ${fullName || "Thanks"}
