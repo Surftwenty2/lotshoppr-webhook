@@ -1,6 +1,6 @@
 // File: api/tally-webhook.js
 // -------------------------------------------------------
-// LotShoppr Webhook Handler (Rate-limit Safe + Natural Dealer Copy)
+// LotShoppr Webhook Handler – production version
 // -------------------------------------------------------
 
 console.log("⚡ LotShoppr: NEW TALLY WEBHOOK HANDLER LOADED");
@@ -9,7 +9,7 @@ const { Resend } = require("resend");
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 // -------------------------------------------------------
-// Sleep helper to avoid Resend 429 errors
+// Sleep helper to avoid Resend 429 (rate limit) errors
 // -------------------------------------------------------
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -32,12 +32,13 @@ function getDealerRecipients() {
 }
 
 // -------------------------------------------------------
-// Helpers
+// Form helpers
 // -------------------------------------------------------
 function getField(fields, key) {
   const field = fields.find((f) => f.key === key);
   if (!field) return null;
 
+  // For dropdowns/multiple choice
   if (Array.isArray(field.value) && field.options) {
     const selectedId = field.value[0];
     const match = field.options.find((o) => o.id === selectedId);
@@ -105,6 +106,9 @@ ${JSON.stringify(form, null, 2)}
 `.trim();
 }
 
+// -------------------------------------------------------
+// Dealer email helpers
+// -------------------------------------------------------
 function pickRandom(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
@@ -117,16 +121,51 @@ function buildDealerSubject(form) {
 
   const subjects = [
     `${year} ${make} ${model} ${trim} – quote request`,
-    `Quick question on a ${year} ${make} ${model}`,
+    `Quick quote on a ${year} ${make} ${model}`,
     `Checking availability on a ${year} ${make} ${model}`,
     `Pricing on a ${year} ${make} ${model}?`,
   ];
   return pickRandom(subjects);
 }
 
-// -------------------------------------------------------
-// NATURAL, VARIED DEALER BODY
-// -------------------------------------------------------
+// One-line summary of the deal type, tuned to sound like a real buyer
+function getDealLine(form) {
+  if (form.dealType === "Lease") {
+    const miles = form.leaseMiles || "standard miles";
+    const term = form.leaseMonths ? `${form.leaseMonths} months` : "a typical term";
+    const payment = form.leaseMaxPayment || null;
+    const down = form.leaseDown || null;
+
+    let line = `Looking to lease it, ${miles}/yr over about ${term}`;
+    if (down) line += ` with roughly ${down} down`;
+    if (payment) line += ` and a target payment around ${payment}/mo`;
+    line += ".";
+    return line;
+  }
+
+  if (form.dealType === "Finance") {
+    const term = form.financeMonths ? `${form.financeMonths} months` : "a standard term";
+    const payment = form.financeMaxPayment || null;
+    const down = form.financeDown || null;
+
+    let line = `Planning to finance over about ${term}`;
+    if (down) line += ` with around ${down} down`;
+    if (payment) line += ` and a target payment near ${payment}/mo`;
+    line += ".";
+    return line;
+  }
+
+  if (form.dealType === "Pay Cash") {
+    if (form.cashMax) {
+      return `Cash buyer, trying to stay around ${form.cashMax} out-the-door (taxes/fees included).`;
+    }
+    return "Cash buyer, just need a clean out-the-door number.";
+  }
+
+  return "Just looking for a straightforward out-the-door number on something that matches.";
+}
+
+// Main dealer body: short, assertive, “knows their stuff” with a couple longer variants
 function buildDealerBody(form) {
   const first = form.firstName || "";
   const last = form.lastName || "";
@@ -137,79 +176,94 @@ function buildDealerBody(form) {
   const trim = form.trim || "";
   const color = form.color || "any color";
   const interior = form.interior || "any interior";
+  const email = form.email || "";
+  const zip = form.zip || "";
+  const dealLine = getDealLine(form);
 
-  const greetings = [
-    "Hi there,",
-    "Hello,",
-    "Hey,",
-    "Good morning,",
-    "Good afternoon,",
-  ];
+  const carLineShort = `Looking for a ${year} ${make} ${model} ${trim} in ${color} / ${interior}.`;
+  const carLineAlt = `Interested in a ${year} ${make} ${model} ${trim} — ${color} exterior, ${interior} interior.`;
 
-  const intros = [
-    fullName
-      ? `My name is ${fullName}. I saw a vehicle I'm interested in and wanted to check availability.`
-      : `I saw a vehicle I'm interested in and wanted to check availability.`,
-    fullName
-      ? `This is ${fullName}. I’m shopping around and saw something that caught my eye.`
-      : `I’m shopping around and saw something that caught my eye.`,
-    `I'm looking to see if you might have something that matches what I'm after.`,
-  ];
+  const contactShort = email
+    ? `You can reply here or reach me at ${email}.`
+    : `You can reply directly to this email.`;
 
-  const vehicleLines = [
-    `I'm looking for a ${year} ${make} ${model} ${trim} in ${color} with a ${interior} interior.`,
-    `Do you have a ${year} ${make} ${model} ${trim} available in ${color} / ${interior}?`,
-    `I'm trying to track down a ${year} ${make} ${model} ${trim} — ${color} exterior, ${interior} interior.`,
-  ];
+  // --- Short, assertive variants ---
 
-  let dealBlock = "";
+  const templateShort1 = `
+Hi there,
 
-  if (form.dealType === "Lease") {
-    dealBlock = `If leasing is possible, I'm aiming for something around:
+${carLineShort}
+${dealLine}
+If you have one in stock or incoming, please send your best out-the-door number.
 
-- Miles per year: ${form.leaseMiles || ""}
-- Term: ${form.leaseMonths || ""} months
-- Down payment: ${form.leaseDown || ""}
-- Target monthly payment: ${form.leaseMaxPayment || ""}`;
-  } else if (form.dealType === "Finance") {
-    dealBlock = `If I finance it, I'm roughly thinking:
-
-- Down payment: ${form.financeDown || ""}
-- Term: ${form.financeMonths || ""} months
-- Target monthly payment: ${form.financeMaxPayment || ""}`;
-  } else if (form.dealType === "Pay Cash") {
-    dealBlock = `I'll be paying cash and trying to stay around ${form.cashMax || ""} out-the-door (including taxes and fees).`;
-  }
-
-  const closings = [
-    "If you have anything close, could you send over your best out-the-door number?",
-    "If you have something in stock or inbound, I'd appreciate your best OTD price.",
-    "If there's anything that matches or is close, can you let me know what your OTD numbers would look like?",
-  ];
-
-  const contactLines = [
-    `You can reply here or reach me at ${form.email || ""}.`,
-    `Replying to this email is fine, or you can email me at ${form.email || ""}.`,
-    `You can get back to me here or at ${form.email || ""}.`,
-  ];
-
-  return `
-${pickRandom(greetings)}
-
-${pickRandom(intros)}
-
-${pickRandom(vehicleLines)}
-
-${dealBlock}
-
-${pickRandom(closings)}
-
-${pickRandom(contactLines)}
+${contactShort}
 
 Thanks,
 ${fullName || "Thanks"}
-Zip code: ${form.zip || ""}
-`.trim();
+${zip ? `Zip code: ${zip}` : ""}`.trim();
+
+  const templateShort2 = `
+Hello,
+
+Can you check availability on a ${year} ${make} ${model} ${trim} in ${color} with a ${interior} interior?
+${dealLine}
+If you have anything close, I'd like to see your OTD pricing.
+
+${contactShort}
+
+${fullName || "Thanks"}
+${zip ? `Zip: ${zip}` : ""}`.trim();
+
+  const templateShort3 = `
+Hey,
+
+Quick quote request on a ${year} ${make} ${model} ${trim} (${color} / ${interior}).
+${dealLine}
+Please send your best out-the-door price if you have something that matches.
+
+${contactShort}
+
+Thanks,
+${fullName || "Thanks"}
+${zip ? `Zip: ${zip}` : ""}`.trim();
+
+  // --- Longer “I know my stuff” variants for variance ---
+
+  const templateLong1 = `
+Hi there,
+
+I'm reaching out to get numbers on a ${year} ${make} ${model} ${trim} — ${color} outside, ${interior} inside. ${dealLine}
+
+I'm checking a few stores and just need a straightforward out-the-door quote (no add-ons I didn't ask for). If you have one on the ground or inbound that fits, I'd appreciate your best figure.
+
+${contactShort}
+
+Thanks,
+${fullName || "Thanks"}
+${zip ? `Zip code: ${zip}` : ""}`.trim();
+
+  const templateLong2 = `
+Good afternoon,
+
+I'm lining up pricing on a ${year} ${make} ${model} ${trim} in ${color} with a ${interior} interior. ${dealLine}
+
+I'm reaching out to a few dealers and just looking for a clean OTD quote so I can compare. If you have something that fits (or close), please include any adds you can't remove so I can look at everything side by side.
+
+${contactShort}
+
+Thanks,
+${fullName || "Thanks"}
+${zip ? `${zip}` : ""}`.trim();
+
+  const templates = [
+    templateShort1,
+    templateShort2,
+    templateShort3,
+    templateLong1,
+    templateLong2,
+  ];
+
+  return pickRandom(templates);
 }
 
 // -------------------------------------------------------
@@ -220,7 +274,9 @@ module.exports = async (req, res) => {
 
   try {
     if (req.method !== "POST") {
-      return res.status(405).json({ ok: false, error: "method_not_allowed" });
+      return res
+        .status(405)
+        .json({ ok: false, error: "method_not_allowed" });
     }
 
     const payload = req.body;
@@ -256,7 +312,7 @@ module.exports = async (req, res) => {
     console.log("Parsed Form Data:", formData);
 
     // ---------------------------------------------------
-    // 1) ADMIN EMAIL (single request)
+    // 1) ADMIN EMAIL (single Resend request)
     // ---------------------------------------------------
     console.log("📨 Sending ADMIN email...");
 
@@ -299,15 +355,23 @@ module.exports = async (req, res) => {
             reply_to: formData.email || "sean@lotshoppr.com",
           });
 
-          console.log(`✔ Dealer email result for ${dealerEmail}:`, dealerResult);
+          console.log(
+            `✔ Dealer email result for ${dealerEmail}:`,
+            dealerResult
+          );
         } catch (e) {
-          console.error(`❌ Error sending dealer email to ${dealerEmail}:`, e);
+          console.error(
+            `❌ Error sending dealer email to ${dealerEmail}:`,
+            e
+          );
         }
 
         await sleep(700);
       }
     } else {
-      console.log("⚠ No dealer recipients configured (DEALER_EMAILS env is empty).");
+      console.log(
+        "⚠ No dealer recipients configured (DEALER_EMAILS env is empty)."
+      );
     }
 
     return res.json({ ok: true });
