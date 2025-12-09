@@ -1,24 +1,22 @@
-// File: api/tally-webhook.js
-// -------------------------------------------------------
-// LotShoppr Webhook Handler – production version
-// -------------------------------------------------------
+// api/tally-webhook.js
 
-console.log("⚡ LotShoppr: NEW TALLY WEBHOOK HANDLER LOADED");
+console.log("⚡ LotShoppr: TALLY WEBHOOK HANDLER LOADED");
 
 const { Resend } = require("resend");
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// -------------------------------------------------------
-// Sleep helper to avoid Resend 429 (rate limit) errors
-// -------------------------------------------------------
+const {
+  createLeadFromForm,
+  saveLead,
+} = require("../lib/negotiation");
+
+// Sleep helper to avoid Resend rate limits
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Admin recipients
 const ADMIN_RECIPIENTS = ["Srboyan@gmail.com", "sean@lotshoppr.com"];
 
-// Dealer recipients read from environment variable
 function getDealerRecipients() {
   const raw = process.env.DEALER_EMAILS;
   if (!raw) return [];
@@ -28,14 +26,10 @@ function getDealerRecipients() {
     .filter(Boolean);
 }
 
-// -------------------------------------------------------
-// Form helpers
-// -------------------------------------------------------
 function getField(fields, key) {
   const field = fields.find((f) => f.key === key);
   if (!field) return null;
 
-  // For dropdowns/multiple choice
   if (Array.isArray(field.value) && field.options) {
     const selectedId = field.value[0];
     const match = field.options.find((o) => o.id === selectedId);
@@ -103,11 +97,68 @@ ${JSON.stringify(form, null, 2)}
 `.trim();
 }
 
-// -------------------------------------------------------
-// Dealer email helpers
-// -------------------------------------------------------
-function pickRandom(arr) {
-  return arr[Math.floor(Math.random() * arr.length)];
+// short, assertive opening email
+function buildDealerInitialBody(form) {
+  const fullName = [form.firstName, form.lastName].filter(Boolean).join(" ");
+  const year = form.year || "";
+  const make = form.make || "";
+  const model = form.model || "";
+  const trim = form.trim || "";
+  const color = form.color || "any color";
+  const interior = form.interior || "any interior";
+
+  const lines = [];
+  lines.push(
+    `I’m interested in a ${year} ${make} ${model} ${trim} in ${color} with ${interior}.`
+  );
+
+  if (form.dealType === "Pay Cash") {
+    lines.push(
+      `I’m a cash buyer and need the out-the-door price (tax, title, all fees) to be at or under ${form.cashMax || ""}.`
+    );
+  } else if (form.dealType === "Lease") {
+    lines.push("Here’s the lease structure I’m looking for:");
+    if (form.leaseMonths || form.leaseMiles) {
+      let line = "- Lease:";
+      if (form.leaseMonths) line += ` ${form.leaseMonths} months`;
+      if (form.leaseMiles)
+        line += `${form.leaseMonths ? ", " : " "}${form.leaseMiles}`;
+      lines.push(line);
+    }
+    if (form.leaseDown) {
+      lines.push(`- Total due at signing: ${form.leaseDown}`);
+    }
+    if (form.leaseMaxPayment) {
+      lines.push(`- Monthly payment: ${form.leaseMaxPayment} or less`);
+    }
+  } else if (form.dealType === "Finance") {
+    lines.push("Here’s the finance structure I’m targeting:");
+    if (form.financeMonths) {
+      lines.push(`- Term: ${form.financeMonths} months`);
+    }
+    if (form.financeDown) {
+      lines.push(`- Down payment: ${form.financeDown}`);
+    }
+    if (form.financeMaxPayment) {
+      lines.push(`- Monthly payment: ${form.financeMaxPayment} or less`);
+    }
+  }
+
+  lines.push(
+    "If you can meet those numbers on something in stock or inbound, I’m ready to come in and sign."
+  );
+
+  return `
+Hi,
+
+${lines.join("\n")}
+
+You can reply directly to this email.
+
+Thanks,
+${fullName || "Thanks"}
+${form.zip ? `Zip: ${form.zip}` : ""}
+`.trim();
 }
 
 function buildDealerSubject(form) {
@@ -122,183 +173,11 @@ function buildDealerSubject(form) {
     `Checking numbers on a ${year} ${make} ${model}`,
     `OTD pricing on a ${year} ${make} ${model}?`,
   ];
-  return pickRandom(subjects);
+  return subjects[Math.floor(Math.random() * subjects.length)];
 }
 
-// Build a clear, non-ambiguous deal block
-function getDealBlock(form) {
-  const lines = [];
-
-  if (form.dealType === "Lease") {
-    const miles = form.leaseMiles || null;
-    const term = form.leaseMonths || null;
-    const down = form.leaseDown || null;
-    const payment = form.leaseMaxPayment || null;
-
-    lines.push("Here’s the lease structure I’m looking for:");
-    if (miles || term) {
-      let line = "- Lease:";
-      if (miles) line += ` ${miles}`; // label already includes units
-      if (term) line += `${miles ? ", " : " "}${term} months`;
-      lines.push(line);
-    }
-    if (down) {
-      lines.push(`- Total due at signing: ${down}`);
-    }
-    if (payment) {
-      lines.push(`- Monthly payment: ${payment} or less`);
-    }
-  } else if (form.dealType === "Finance") {
-    const term = form.financeMonths || null;
-    const down = form.financeDown || null;
-    const payment = form.financeMaxPayment || null;
-
-    lines.push("Here’s the finance structure I’m targeting:");
-    if (term) {
-      lines.push(`- Term: ${term} months`);
-    }
-    if (down) {
-      lines.push(`- Down payment: ${down}`);
-    }
-    if (payment) {
-      lines.push(`- Monthly payment: ${payment} or less`);
-    }
-  } else if (form.dealType === "Pay Cash") {
-    lines.push("Here’s what I’m targeting:");
-    if (form.cashMax) {
-      lines.push(
-        `- Cash buyer: out-the-door price at or under ${form.cashMax} (tax, title, fees included)`
-      );
-    } else {
-      lines.push(
-        "- Cash buyer: need a clear out-the-door price (tax, title, fees included)"
-      );
-    }
-  } else {
-    lines.push("Here’s what I’m looking for:");
-    lines.push(
-      "- Straightforward out-the-door number with standard fees only"
-    );
-  }
-
-  return lines.join("\n");
-}
-
-// Main dealer body: short, assertive, with a couple longer variants
-function buildDealerBody(form) {
-  const first = form.firstName || "";
-  const last = form.lastName || "";
-  const fullName = [first, last].filter(Boolean).join(" ");
-  const year = form.year || "";
-  const make = form.make || "";
-  const model = form.model || "";
-  const trim = form.trim || "";
-  const color = form.color || "any color";
-  const interior = form.interior || "any interior";
-  const zip = form.zip || "";
-  const dealBlock = getDealBlock(form);
-
-  // avoid "Light Interior interior" – interior string is already descriptive
-  const carLine = `I’m interested in a ${year} ${make} ${model} ${trim} in ${color} with ${interior}.`;
-  const carLineAlt = `Looking at a ${year} ${make} ${model} ${trim} — ${color} exterior, ${interior}.`;
-
-  // Dealer should NOT see customer email in body
-  const contactLine = "You can reply directly to this email.";
-
-  const commitLine =
-    "If you can meet those numbers on something in stock or inbound, I’m ready to come in and sign.";
-
-  // --- Short, assertive variants ---
-
-  const templateShort1 = `
-Hi there,
-
-${carLine}
-${dealBlock}
-
-${commitLine}
-
-${contactLine}
-
-Thanks,
-${fullName || "Thanks"}
-${zip ? `Zip code: ${zip}` : ""}`.trim();
-
-  const templateShort2 = `
-Hello,
-
-${carLineAlt}
-${dealBlock}
-
-${commitLine}
-
-${contactLine}
-
-${fullName || "Thanks"}
-${zip ? `Zip: ${zip}` : ""}`.trim();
-
-  const templateShort3 = `
-Hey,
-
-I’m pricing a ${year} ${make} ${model} ${trim} (${color} / ${interior}).
-${dealBlock}
-
-${commitLine}
-
-${contactLine}
-
-Thanks,
-${fullName || "Thanks"}
-${zip ? `Zip: ${zip}` : ""}`.trim();
-
-  // --- Longer “I know my numbers” variants ---
-
-  const templateLong1 = `
-Hi there,
-
-I’m lining up numbers on a ${year} ${make} ${model} ${trim} in ${color} with ${interior}.
-
-${dealBlock}
-
-I’m talking to a few stores and want a straight OTD quote that matches this structure. If you can hit those numbers on a unit you have or have coming in, I’m good to come down and sign.
-
-${contactLine}
-
-Thanks,
-${fullName || "Thanks"}
-${zip ? `Zip code: ${zip}` : ""}`.trim();
-
-  const templateLong2 = `
-Good afternoon,
-
-I’m working up a deal on a ${year} ${make} ${model} ${trim} (${color} / ${interior}).
-
-${dealBlock}
-
-I’m comparing offers and plan to move forward where the numbers line up. If you can meet those terms, let me know and we can set a time for me to come in and finish paperwork.
-
-${contactLine}
-
-Thanks,
-${fullName || "Thanks"}
-${zip ? `${zip}` : ""}`.trim();
-
-  const templates = [
-    templateShort1,
-    templateShort2,
-    templateShort3,
-    templateLong1,
-    templateLong2,
-  ];
-
-  return pickRandom(templates);
-}
-
-// -------------------------------------------------------
-// Main handler
-// -------------------------------------------------------
 module.exports = async (req, res) => {
-  console.log("⚡ LotShoppr: NEW HANDLER INVOKED");
+  console.log("⚡ LotShoppr: TALLY HANDLER INVOKED");
 
   try {
     if (req.method !== "POST") {
@@ -339,11 +218,17 @@ module.exports = async (req, res) => {
 
     console.log("Parsed Form Data:", formData);
 
-    // ---------------------------------------------------
-    // 1) ADMIN EMAIL (single Resend request)
-    // ---------------------------------------------------
-    console.log("📨 Sending ADMIN email...");
+    // Create and store lead
+    const lead = createLeadFromForm(formData);
+    const dealerRecipients = getDealerRecipients();
+    lead.dealerEmails = dealerRecipients;
+    await saveLead(lead);
 
+    // Per-lead email address for negotiation thread
+    const dealsAddress = `deals+${lead.id}@lotshoppr.com`;
+
+    // 1) Admin email
+    console.log("📨 Sending ADMIN email...");
     try {
       const adminResult = await resend.emails.send({
         from: "LotShoppr <sean@lotshoppr.com>",
@@ -351,40 +236,29 @@ module.exports = async (req, res) => {
         subject: "🚗 New LotShoppr Submission",
         text: buildAdminEmail(formData),
       });
-
       console.log("✔ Admin email result:", adminResult);
     } catch (e) {
       console.error("❌ Error sending admin email:", e);
     }
 
-    // Sleep to avoid rate limit
     await sleep(700);
 
-    // ---------------------------------------------------
-    // 2) DEALER EMAILS
-    // ---------------------------------------------------
-    const dealerRecipients = getDealerRecipients();
-    console.log("👀 Dealer Recipients:", dealerRecipients);
-
+    // 2) Dealer initial email
     if (dealerRecipients.length > 0) {
       const subject = buildDealerSubject(formData);
+      const text = buildDealerInitialBody(formData);
 
       for (const dealerEmail of dealerRecipients) {
         console.log(`📨 Sending dealer email to ${dealerEmail}...`);
-
         try {
-          const body = buildDealerBody(formData);
-
           const dealerResult = await resend.emails.send({
-            from: `LotShoppr for ${formData.firstName || "Customer"} <sean@lotshoppr.com>`,
+            from: `LotShoppr for ${formData.firstName || "Customer"} <${dealsAddress}>`,
             to: dealerEmail,
             subject,
-            text: body,
-            // Dealer replies still go to the customer, but email
-            // is not shown in the body.
-            reply_to: formData.email || "sean@lotshoppr.com",
+            text,
+            // Dealer replies go back to LotShoppr, not the customer:
+            reply_to: dealsAddress,
           });
-
           console.log(
             `✔ Dealer email result for ${dealerEmail}:`,
             dealerResult
@@ -395,16 +269,13 @@ module.exports = async (req, res) => {
             e
           );
         }
-
         await sleep(700);
       }
     } else {
-      console.log(
-        "⚠ No dealer recipients configured (DEALER_EMAILS env is empty)."
-      );
+      console.log("⚠ No dealer recipients configured (DEALER_EMAILS env is empty).");
     }
 
-    return res.json({ ok: true });
+    return res.json({ ok: true, leadId: lead.id });
   } catch (err) {
     console.error("❌ Webhook error:", err);
     return res.status(500).json({ ok: false, error: "webhook_failure" });
