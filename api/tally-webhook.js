@@ -138,7 +138,7 @@ function getDealBlock(form) {
     lines.push("Here’s the lease structure I’m looking for:");
     if (miles || term) {
       let line = "- Lease:";
-      if (miles) line += ` ${miles}`; // rely on label (e.g. "12000 Miles/year")
+      if (miles) line += ` ${miles}`; // label already includes units
       if (term) line += `${miles ? ", " : " "}${term} months`;
       lines.push(line);
     }
@@ -195,7 +195,6 @@ function buildDealerBody(form) {
   const trim = form.trim || "";
   const color = form.color || "any color";
   const interior = form.interior || "any interior";
-  const email = form.email || "";
   const zip = form.zip || "";
   const dealBlock = getDealBlock(form);
 
@@ -203,9 +202,8 @@ function buildDealerBody(form) {
   const carLine = `I’m interested in a ${year} ${make} ${model} ${trim} in ${color} with ${interior}.`;
   const carLineAlt = `Looking at a ${year} ${make} ${model} ${trim} — ${color} exterior, ${interior}.`;
 
-  const contactLine = email
-    ? `You can reply here or email me at ${email}.`
-    : `You can reply directly to this email.`;
+  // Dealer should NOT see customer email in body
+  const contactLine = "You can reply directly to this email.";
 
   const commitLine =
     "If you can meet those numbers on something in stock or inbound, I’m ready to come in and sign.";
@@ -377,36 +375,4 @@ module.exports = async (req, res) => {
         try {
           const body = buildDealerBody(formData);
 
-          const dealerResult = await resend.emails.send({
-            from: `LotShoppr for ${formData.firstName || "Customer"} <sean@lotshoppr.com>`,
-            to: dealerEmail,
-            subject,
-            text: body,
-            reply_to: formData.email || "sean@lotshoppr.com",
-          });
-
-          console.log(
-            `✔ Dealer email result for ${dealerEmail}:`,
-            dealerResult
-          );
-        } catch (e) {
-          console.error(
-            `❌ Error sending dealer email to ${dealerEmail}:`,
-            e
-          );
-        }
-
-        await sleep(700);
-      }
-    } else {
-      console.log(
-        "⚠ No dealer recipients configured (DEALER_EMAILS env is empty)."
-      );
-    }
-
-    return res.json({ ok: true });
-  } catch (err) {
-    console.error("❌ Webhook error:", err);
-    return res.status(500).json({ ok: false, error: "webhook_failure" });
-  }
-};
+          const
