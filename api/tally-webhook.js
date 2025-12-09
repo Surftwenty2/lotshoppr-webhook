@@ -375,4 +375,38 @@ module.exports = async (req, res) => {
         try {
           const body = buildDealerBody(formData);
 
-          const
+          const dealerResult = await resend.emails.send({
+            from: `LotShoppr for ${formData.firstName || "Customer"} <sean@lotshoppr.com>`,
+            to: dealerEmail,
+            subject,
+            text: body,
+            // Dealer replies still go to the customer, but email
+            // is not shown in the body.
+            reply_to: formData.email || "sean@lotshoppr.com",
+          });
+
+          console.log(
+            `✔ Dealer email result for ${dealerEmail}:`,
+            dealerResult
+          );
+        } catch (e) {
+          console.error(
+            `❌ Error sending dealer email to ${dealerEmail}:`,
+            e
+          );
+        }
+
+        await sleep(700);
+      }
+    } else {
+      console.log(
+        "⚠ No dealer recipients configured (DEALER_EMAILS env is empty)."
+      );
+    }
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("❌ Webhook error:", err);
+    return res.status(500).json({ ok: false, error: "webhook_failure" });
+  }
+};
