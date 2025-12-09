@@ -1,22 +1,27 @@
 // File: api/tally-webhook.js
 // -------------------------------------------------------
-// LotShoppr Webhook Handler (clean, tested structure)
+// LotShoppr Webhook Handler (Rate-limit Safe Final Version)
 // -------------------------------------------------------
 
 console.log("⚡ LotShoppr: NEW TALLY WEBHOOK HANDLER LOADED");
 
 const { Resend } = require("resend");
-
-// Resend client – make sure RESEND_API_KEY is set in Vercel
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// Admin recipients: always notify you
+// -------------------------------------------------------
+// Sleep helper to avoid Resend 429 errors
+// -------------------------------------------------------
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Admin recipients
 const ADMIN_RECIPIENTS = [
   "Srboyan@gmail.com",
   "sean@lotshoppr.com",
 ];
 
-// Dealer recipients: configured via env in Vercel
+// Dealer recipients read from environment variable
 function getDealerRecipients() {
   const raw = process.env.DEALER_EMAILS;
   if (!raw) return [];
@@ -33,7 +38,6 @@ function getField(fields, key) {
   const field = fields.find((f) => f.key === key);
   if (!field) return null;
 
-  // For dropdowns / multiple choice
   if (Array.isArray(field.value) && field.options) {
     const selectedId = field.value[0];
     const match = field.options.find((o) => o.id === selectedId);
@@ -101,9 +105,6 @@ ${JSON.stringify(form, null, 2)}
 `.trim();
 }
 
-// -------------------------------------------------------
-// Dealer-facing email helpers
-// -------------------------------------------------------
 function pickRandom(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
@@ -125,35 +126,33 @@ function buildDealerSubject(form) {
 
 function buildDealerBody(form) {
   const greetings = ["Hi there,", "Hello,", "Good afternoon,", "Hi,"];
-
   const intros = [
     `My name is ${form.firstName || ""} ${form.lastName || ""}, and I'm shopping for a new vehicle.`,
     `I'm ${form.firstName || ""} and I'm in the market for a new car.`,
     `I'm currently looking for a specific vehicle and wanted to see what you might have available.`,
   ];
-
   const vehicleLines = [
-    `I'm interested in a ${form.year || ""} ${form.make || ""} ${form.model || ""} ${form.trim || ""} in ${form.color || "any color"} with a ${form.interior || "any"} interior.`,
+    `I'm interested in a ${form.year || ""} ${form.make || ""} ${form.model || ""} ${form.trim || ""} in ${form.color || "any"} with a ${form.interior || "any"} interior.`,
     `The vehicle I'm after is a ${form.year || ""} ${form.make || ""} ${form.model || ""} ${form.trim || ""} (${form.color || "any color"}, ${form.interior || "any interior"}).`,
   ];
 
   let dealBlock = "";
 
   if (form.dealType === "Lease") {
-    dealBlock = `Ideally, I'd like to lease it around these terms:
+    dealBlock = `Ideversion:
 
-- Miles per year: ${form.leaseMiles || ""}
-- Term: ${form.leaseMonths || ""} months
-- Down payment: ${form.leaseDown || ""}
-- Target monthly payment: ${form.leaseMaxPayment || ""}`;
+- Miles per year: ${form.leaseMiles}
+- Term: ${form.leaseMonths} months
+- Down payment: ${form.leaseDown}
+- Target monthly payment: ${form.leaseMaxPayment}`;
   } else if (form.dealType === "Finance") {
     dealBlock = `I'm planning to finance it roughly on these terms:
 
-- Down payment: ${form.financeDown || ""}
-- Target monthly payment: ${form.financeMaxPayment || ""}
-- Term: ${form.financeMonths || ""} months`;
+- Down payment: ${form.financeDown}
+- Target monthly payment: ${form.financeMaxPayment}
+- Term: ${form.financeMonths} months`;
   } else if (form.dealType === "Pay Cash") {
-    dealBlock = `I'm planning to pay cash, and my budget (including taxes and fees) is around ${form.cashMax || ""}.`;
+    dealBlock = `I'm planning to pay cash, and my budget (including taxes and fees) is around ${form.cashMax}.`;
   }
 
   const closings = [
@@ -226,21 +225,30 @@ module.exports = async (req, res) => {
 
     console.log("Parsed Form Data:", formData);
 
-    // 1) Admin notification (you)
+    // ---------------------------------------------------
+    // 1) ADMIN EMAIL (single request)
+    // ---------------------------------------------------
     console.log("📨 Sending ADMIN email...");
+
     try {
       const adminResult = await resend.emails.send({
         from: "LotShoppr <sean@lotshoppr.com>",
-        to: ADMIN_RECIPIENTS,
+        to: ADMIN_RECIPIENTS, // 1 request, sent to 2 inboxes
         subject: "🚗 New LotShoppr Submission",
         text: buildAdminEmail(formData),
       });
+
       console.log("✔ Admin email result:", adminResult);
     } catch (e) {
       console.error("❌ Error sending admin email:", e);
     }
 
-    // 2) Dealer-facing emails
+    // Sleep to avoid rate limit
+    await sleep(700);
+
+    // ---------------------------------------------------
+    // 2) DEALER EMAILS
+    // ---------------------------------------------------
     const dealerRecipients = getDealerRecipients();
     console.log("👀 Dealer Recipients:", dealerRecipients);
 
@@ -248,18 +256,16 @@ module.exports = async (req, res) => {
       const subject = buildDealerSubject(formData);
 
       for (const dealerEmail of dealerRecipients) {
-        try {
-          console.log(`📨 Sending dealer email to ${dealerEmail}...`);
+        console.log(`📨 Sending dealer email to ${dealerEmail}...`);
 
-          const body = buildDealerBody(formData, dealerEmail);
+        try {
+          const body = buildDealerBody(formData);
 
           const dealerResult = await resend.emails.send({
-            // From: looks like customer context, but via your domain
             from: `LotShoppr for ${formData.firstName || "Customer"} <sean@lotshoppr.com>`,
             to: dealerEmail,
             subject,
             text: body,
-            // Replies go straight to customer
             reply_to: formData.email || "sean@lotshoppr.com",
           });
 
@@ -267,6 +273,8 @@ module.exports = async (req, res) => {
         } catch (e) {
           console.error(`❌ Error sending dealer email to ${dealerEmail}:`, e);
         }
+
+        await sleep(700);
       }
     } else {
       console.log("⚠ No dealer recipients configured (DEALER_EMAILS env is empty).");
