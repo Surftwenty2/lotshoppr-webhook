@@ -1,6 +1,6 @@
 // File: api/tally-webhook.js
 // -------------------------------------------------------
-// LotShoppr Webhook Handler (Rate-limit Safe Final Version)
+// LotShoppr Webhook Handler (Rate-limit Safe + Natural Dealer Copy)
 // -------------------------------------------------------
 
 console.log("⚡ LotShoppr: NEW TALLY WEBHOOK HANDLER LOADED");
@@ -117,51 +117,81 @@ function buildDealerSubject(form) {
 
   const subjects = [
     `${year} ${make} ${model} ${trim} – quote request`,
+    `Quick question on a ${year} ${make} ${model}`,
+    `Checking availability on a ${year} ${make} ${model}`,
     `Pricing on a ${year} ${make} ${model}?`,
-    `Looking for a ${year} ${make} ${model} deal`,
-    `Question about a ${year} ${make} ${model}`,
   ];
   return pickRandom(subjects);
 }
 
+// -------------------------------------------------------
+// NATURAL, VARIED DEALER BODY
+// -------------------------------------------------------
 function buildDealerBody(form) {
-  const greetings = ["Hi there,", "Hello,", "Good afternoon,", "Hi,"];
-  const intros = [
-    `My name is ${form.firstName || ""} ${form.lastName || ""}, and I'm shopping for a new vehicle.`,
-    `I'm ${form.firstName || ""} and I'm in the market for a new car.`,
-    `I'm currently looking for a specific vehicle and wanted to see what you might have available.`,
+  const first = form.firstName || "";
+  const last = form.lastName || "";
+  const fullName = [first, last].filter(Boolean).join(" ");
+  const year = form.year || "";
+  const make = form.make || "";
+  const model = form.model || "";
+  const trim = form.trim || "";
+  const color = form.color || "any color";
+  const interior = form.interior || "any interior";
+
+  const greetings = [
+    "Hi there,",
+    "Hello,",
+    "Hey,",
+    "Good morning,",
+    "Good afternoon,",
   ];
+
+  const intros = [
+    fullName
+      ? `My name is ${fullName}. I saw a vehicle I'm interested in and wanted to check availability.`
+      : `I saw a vehicle I'm interested in and wanted to check availability.`,
+    fullName
+      ? `This is ${fullName}. I’m shopping around and saw something that caught my eye.`
+      : `I’m shopping around and saw something that caught my eye.`,
+    `I'm looking to see if you might have something that matches what I'm after.`,
+  ];
+
   const vehicleLines = [
-    `I'm interested in a ${form.year || ""} ${form.make || ""} ${form.model || ""} ${form.trim || ""} in ${form.color || "any"} with a ${form.interior || "any"} interior.`,
-    `The vehicle I'm after is a ${form.year || ""} ${form.make || ""} ${form.model || ""} ${form.trim || ""} (${form.color || "any color"}, ${form.interior || "any interior"}).`,
+    `I'm looking for a ${year} ${make} ${model} ${trim} in ${color} with a ${interior} interior.`,
+    `Do you have a ${year} ${make} ${model} ${trim} available in ${color} / ${interior}?`,
+    `I'm trying to track down a ${year} ${make} ${model} ${trim} — ${color} exterior, ${interior} interior.`,
   ];
 
   let dealBlock = "";
 
   if (form.dealType === "Lease") {
-    dealBlock = `Ideversion:
+    dealBlock = `If leasing is possible, I'm aiming for something around:
 
-- Miles per year: ${form.leaseMiles}
-- Term: ${form.leaseMonths} months
-- Down payment: ${form.leaseDown}
-- Target monthly payment: ${form.leaseMaxPayment}`;
+- Miles per year: ${form.leaseMiles || ""}
+- Term: ${form.leaseMonths || ""} months
+- Down payment: ${form.leaseDown || ""}
+- Target monthly payment: ${form.leaseMaxPayment || ""}`;
   } else if (form.dealType === "Finance") {
-    dealBlock = `I'm planning to finance it roughly on these terms:
+    dealBlock = `If I finance it, I'm roughly thinking:
 
-- Down payment: ${form.financeDown}
-- Target monthly payment: ${form.financeMaxPayment}
-- Term: ${form.financeMonths} months`;
+- Down payment: ${form.financeDown || ""}
+- Term: ${form.financeMonths || ""} months
+- Target monthly payment: ${form.financeMaxPayment || ""}`;
   } else if (form.dealType === "Pay Cash") {
-    dealBlock = `I'm planning to pay cash, and my budget (including taxes and fees) is around ${form.cashMax}.`;
+    dealBlock = `I'll be paying cash and trying to stay around ${form.cashMax || ""} out-the-door (including taxes and fees).`;
   }
 
   const closings = [
-    "If you have something close in stock – or inbound – I'd really appreciate your best out-the-door number.",
-    "If you have anything that matches this, could you please send your best out-the-door pricing?",
-    "Please let me know what you have available and what the numbers would look like out the door.",
+    "If you have anything close, could you send over your best out-the-door number?",
+    "If you have something in stock or inbound, I'd appreciate your best OTD price.",
+    "If there's anything that matches or is close, can you let me know what your OTD numbers would look like?",
   ];
 
-  const contactLine = `You can reach me by email at ${form.email || ""} or by replying directly to this message.`;
+  const contactLines = [
+    `You can reply here or reach me at ${form.email || ""}.`,
+    `Replying to this email is fine, or you can email me at ${form.email || ""}.`,
+    `You can get back to me here or at ${form.email || ""}.`,
+  ];
 
   return `
 ${pickRandom(greetings)}
@@ -174,10 +204,10 @@ ${dealBlock}
 
 ${pickRandom(closings)}
 
-${contactLine}
+${pickRandom(contactLines)}
 
 Thanks,
-${form.firstName || ""} ${form.lastName || ""}
+${fullName || "Thanks"}
 Zip code: ${form.zip || ""}
 `.trim();
 }
@@ -233,7 +263,7 @@ module.exports = async (req, res) => {
     try {
       const adminResult = await resend.emails.send({
         from: "LotShoppr <sean@lotshoppr.com>",
-        to: ADMIN_RECIPIENTS, // 1 request, sent to 2 inboxes
+        to: ADMIN_RECIPIENTS,
         subject: "🚗 New LotShoppr Submission",
         text: buildAdminEmail(formData),
       });
