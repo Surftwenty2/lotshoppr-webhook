@@ -16,10 +16,7 @@ function sleep(ms) {
 }
 
 // Admin recipients
-const ADMIN_RECIPIENTS = [
-  "Srboyan@gmail.com",
-  "sean@lotshoppr.com",
-];
+const ADMIN_RECIPIENTS = ["Srboyan@gmail.com", "sean@lotshoppr.com"];
 
 // Dealer recipients read from environment variable
 function getDealerRecipients() {
@@ -141,7 +138,7 @@ function getDealBlock(form) {
     lines.push("Here’s the lease structure I’m looking for:");
     if (miles || term) {
       let line = "- Lease:";
-      if (miles) line += ` ${miles} miles/year`;
+      if (miles) line += ` ${miles}`; // rely on label (e.g. "12000 Miles/year")
       if (term) line += `${miles ? ", " : " "}${term} months`;
       lines.push(line);
     }
@@ -149,7 +146,7 @@ function getDealBlock(form) {
       lines.push(`- Total due at signing: ${down}`);
     }
     if (payment) {
-      lines.push(`- Monthly payment: ${payment} or lower`);
+      lines.push(`- Monthly payment: ${payment} or less`);
     }
   } else if (form.dealType === "Finance") {
     const term = form.financeMonths || null;
@@ -164,7 +161,7 @@ function getDealBlock(form) {
       lines.push(`- Down payment: ${down}`);
     }
     if (payment) {
-      lines.push(`- Monthly payment: ${payment} or lower`);
+      lines.push(`- Monthly payment: ${payment} or less`);
     }
   } else if (form.dealType === "Pay Cash") {
     lines.push("Here’s what I’m targeting:");
@@ -202,12 +199,16 @@ function buildDealerBody(form) {
   const zip = form.zip || "";
   const dealBlock = getDealBlock(form);
 
-  const carLine = `I’m interested in a ${year} ${make} ${model} ${trim} in ${color} with a ${interior} interior.`;
-  const carLineAlt = `Looking at a ${year} ${make} ${model} ${trim} — ${color} exterior, ${interior} interior.`;
+  // avoid "Light Interior interior" – interior string is already descriptive
+  const carLine = `I’m interested in a ${year} ${make} ${model} ${trim} in ${color} with ${interior}.`;
+  const carLineAlt = `Looking at a ${year} ${make} ${model} ${trim} — ${color} exterior, ${interior}.`;
 
   const contactLine = email
     ? `You can reply here or email me at ${email}.`
     : `You can reply directly to this email.`;
+
+  const commitLine =
+    "If you can meet those numbers on something in stock or inbound, I’m ready to come in and sign.";
 
   // --- Short, assertive variants ---
 
@@ -217,7 +218,7 @@ Hi there,
 ${carLine}
 ${dealBlock}
 
-If you can meet this on something you have in stock or incoming, please send a written out-the-door quote.
+${commitLine}
 
 ${contactLine}
 
@@ -231,7 +232,7 @@ Hello,
 ${carLineAlt}
 ${dealBlock}
 
-If you have a unit that fits this, I’d like your best OTD number based on those terms.
+${commitLine}
 
 ${contactLine}
 
@@ -244,7 +245,7 @@ Hey,
 I’m pricing a ${year} ${make} ${model} ${trim} (${color} / ${interior}).
 ${dealBlock}
 
-Please send your best out-the-door price that hits these numbers.
+${commitLine}
 
 ${contactLine}
 
@@ -257,11 +258,11 @@ ${zip ? `Zip: ${zip}` : ""}`.trim();
   const templateLong1 = `
 Hi there,
 
-I’m lining up numbers on a ${year} ${make} ${model} ${trim} in ${color} with a ${interior} interior.
+I’m lining up numbers on a ${year} ${make} ${model} ${trim} in ${color} with ${interior}.
 
 ${dealBlock}
 
-I’m talking to a few stores and just want a straight OTD quote that matches this structure—no extras I didn’t ask for. If you have something on the ground or inbound that fits, please send your numbers.
+I’m talking to a few stores and want a straight OTD quote that matches this structure. If you can hit those numbers on a unit you have or have coming in, I’m good to come down and sign.
 
 ${contactLine}
 
@@ -276,7 +277,7 @@ I’m working up a deal on a ${year} ${make} ${model} ${trim} (${color} / ${inte
 
 ${dealBlock}
 
-I’m comparing offers, so I need a clear out-the-door quote based on those terms. If there are adds you can’t remove, include them in the breakdown so I can see the full picture.
+I’m comparing offers and plan to move forward where the numbers line up. If you can meet those terms, let me know and we can set a time for me to come in and finish paperwork.
 
 ${contactLine}
 
