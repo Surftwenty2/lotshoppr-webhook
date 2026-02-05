@@ -190,7 +190,7 @@ module.exports = async (req, res) => {
     const formData = {
       firstName: getField(fields, "question_oMPMO5"),
         // Use Resend inbound-enabled address for dealer replies
-        const dealsAddress = `deals@deals.lotshoppr.com`;
+        const dealsAddress = "deals@deals.lotshoppr.com";
       year: getField(fields, "question_O5250k"),
       make: getField(fields, "question_V5e58N"),
       model: getField(fields, "question_P5x50P"),
