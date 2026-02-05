@@ -175,68 +175,69 @@ function buildDealerSubject(form) {
 }
 
 module.exports = async (req, res) => {
-  console.log("⚡ LotShoppr: TALLY HANDLER INVOKED");
+  try {
+    console.log("⚡ LotShoppr: TALLY HANDLER INVOKED");
 
-  if (req.method !== "POST") {
-    return res
-      .status(405)
-      .json({ ok: false, error: "method_not_allowed" });
-  }
+    if (req.method !== "POST") {
+      return res
+        .status(405)
+        .json({ ok: false, error: "method_not_allowed" });
+    }
 
-  const payload = req.body;
-  const fields = payload?.data?.fields || [];
+    const payload = req.body;
+    const fields = payload?.data?.fields || [];
 
-  const formData = {
-    firstName: getField(fields, "question_oMPMO5"),
-    year: getField(fields, "question_O5250k"),
-    make: getField(fields, "question_V5e58N"),
-    model: getField(fields, "question_P5x50P"),
-    trim: getField(fields, "question_EQRQ0A"),
-    interior: getField(fields, "question_rA4AEp"),
+    const formData = {
+      firstName: getField(fields, "question_oMPMO5"),
+      year: getField(fields, "question_O5250k"),
+      make: getField(fields, "question_V5e58N"),
+      model: getField(fields, "question_P5x50P"),
+      trim: getField(fields, "question_EQRQ0A"),
+      interior: getField(fields, "question_rA4AEp"),
 
-    dealType: getField(fields, "question_4x6xjd"),
+      dealType: getField(fields, "question_4x6xjd"),
 
-    leaseMiles: getField(fields, "question_jQRQxY"),
-    leaseMonths: getField(fields, "question_2NWNrg"),
-    leaseDown: getField(fields, "question_xaqaZE"),
-    leaseMaxPayment: getField(fields, "question_R5N5LQ"),
+      leaseMiles: getField(fields, "question_jQRQxY"),
+      leaseMonths: getField(fields, "question_2NWNrg"),
+      leaseDown: getField(fields, "question_xaqaZE"),
+      leaseMaxPayment: getField(fields, "question_R5N5LQ"),
 
-    financeDown: getField(fields, "question_oMPMON"),
-    financeMaxPayment: getField(fields, "question_GdGd0O"),
-    financeMonths: getField(fields, "question_O5250M"),
+      financeDown: getField(fields, "question_oMPMON"),
+      financeMaxPayment: getField(fields, "question_GdGd0O"),
+      financeMonths: getField(fields, "question_O5250M"),
 
-    cashMax: getField(fields, "question_V5e586"),
+      cashMax: getField(fields, "question_V5e586"),
 
-    lastName: getField(fields, "question_P5x50x"),
-    email: getField(fields, "question_EQRQ02"),
-    zip: getField(fields, "question_rA4AEX"),
-  };
-
-  console.log("Parsed Form Data:", formData);
-
-  // ==== 1. Create lead in backend ====
-  console.log(`📌 Creating lead in backend (${BACKEND_URL}/api/leads)...`);
-
-  const constraints = {
-    dealType: formData.dealType === "Lease" ? "lease" : formData.dealType === "Finance" ? "finance" : "cash",
-  };
-
-  if (constraints.dealType === "cash") {
-    constraints.cash = { maxOtd: parseMoney(formData.cashMax) };
-  } else if (constraints.dealType === "lease") {
-    constraints.lease = {
-      miles: parseMiles(formData.leaseMiles),
-      months: parseInt(formData.leaseMonths) || null,
-      down: parseMoney(formData.leaseDown),
-      maxPayment: parseMoney(formData.leaseMaxPayment),
+      lastName: getField(fields, "question_P5x50x"),
+      email: getField(fields, "question_EQRQ02"),
+      zip: getField(fields, "question_rA4AEX"),
     };
-  } else if (constraints.dealType === "finance") {
-    constraints.finance = {
-      months: parseInt(formData.financeMonths) || null,
-      down: parseMoney(formData.financeDown),
-      maxPayment: parseMoney(formData.financeMaxPayment),
+
+    console.log("Parsed Form Data:", formData);
+
+    // ==== 1. Create lead in backend ====
+    console.log(`📌 Creating lead in backend (${BACKEND_URL}/api/leads)...`);
+
+    const constraints = {
+      dealType: formData.dealType === "Lease" ? "lease" : formData.dealType === "Finance" ? "finance" : "cash",
     };
-  }
+
+    if (constraints.dealType === "cash") {
+      constraints.cash = { maxOtd: parseMoney(formData.cashMax) };
+    } else if (constraints.dealType === "lease") {
+      constraints.lease = {
+        miles: parseMiles(formData.leaseMiles),
+        months: parseInt(formData.leaseMonths) || null,
+        down: parseMoney(formData.leaseDown),
+        maxPayment: parseMoney(formData.leaseMaxPayment),
+      };
+    } else if (constraints.dealType === "finance") {
+      constraints.finance = {
+        months: parseInt(formData.financeMonths) || null,
+        down: parseMoney(formData.financeDown),
+        maxPayment: parseMoney(formData.financeMaxPayment),
+      };
+    }
 
     let leadResponse;
     try {
