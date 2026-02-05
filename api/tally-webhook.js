@@ -301,7 +301,6 @@ module.exports = async (req, res) => {
 
       for (const dealerEmail of dealerRecipients) {
         console.log(`📨 Sending dealer email to ${dealerEmail}...`);
-        try {
           const dealerResult = await resend.emails.send({
             from: `LotShoppr for ${formData.firstName || "Customer"} <${dealsAddress}>`,
             to: dealerEmail,

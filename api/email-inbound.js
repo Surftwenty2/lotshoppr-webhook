@@ -5,11 +5,8 @@ console.log("⚡ LotShoppr: EMAIL INBOUND HANDLER LOADED");
 const { Resend } = require("resend");
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-const {
-  getLeadById,
-  updateLead,
-  handleDealerReply,
-} = require("../lib/negotiation");
+// Backend URL (from env, default to local dev)
+const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:4000";
 
 // naive sleep again if needed
 function sleep(ms) {
@@ -51,96 +48,65 @@ module.exports = async (req, res) => {
     }
 
     const leadId = match[1];
-    const lead = await getLeadById(leadId);
+    console.log("Extracted leadId:", leadId);
 
-    if (!lead) {
-      console.error("No lead found for id:", leadId);
-      return res.json({ ok: true });
-    }
+    // ==== Call backend to evaluate offer ====
+    console.log(`📌 Sending dealer reply to backend for evaluation...`);
 
-    console.log("Found lead:", leadId);
-
-    const decision = await handleDealerReply(lead, text);
-    console.log("Negotiation decision:", decision);
-
-    const dealsAddress = `deals+${lead.id}@lotshoppr.com`;
-
-    if (decision.matchType && decision.matchType !== lead.matchType) {
-      await updateLead(lead.id, { matchType: decision.matchType });
-    }
-
-    if (decision.action === "REPLY" && decision.body) {
-      // Reply as the customer, continue the same thread
-      console.log("📨 Sending negotiation reply to dealer...");
-
-      await resend.emails.send({
-        from: `LotShoppr for ${lead.firstName || "Customer"} <${dealsAddress}>`,
-        to: from,
-        subject: subject || "Re: your quote",
-        text: decision.body,
-        reply_to: dealsAddress,
+    let backendResponse;
+    try {
+      const dealerResponse = await fetch(`${BACKEND_URL}/api/leads/${leadId}/dealer-reply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dealerId: from,
+          from,
+          subject,
+          text,
+        }),
       });
 
-      await sleep(500);
+      backendResponse = await dealerResponse.json();
+      if (!dealerResponse.ok) {
+        throw new Error(`Backend error: ${JSON.stringify(backendResponse)}`);
+      }
+    } catch (e) {
+      console.error("❌ Error calling backend for evaluation:", e);
+      return res.json({ ok: true, error: "backend_evaluation_failed" });
     }
 
-    if (decision.action === "ACCEPT_AND_NOTIFY" && decision.body) {
-      // 1) Reply to dealer: "I'm good, let's move forward"
-      console.log("📨 Sending ACCEPT email to dealer...");
+    const evaluation = backendResponse.evaluation;
+    const followupEmail = backendResponse.followupEmail;
 
-      await resend.emails.send({
-        from: `LotShoppr for ${lead.firstName || "Customer"} <${dealsAddress}>`,
-        to: from,
-        subject: subject || "Re: your quote",
-        text: decision.body,
-        reply_to: dealsAddress,
-      });
+    console.log("🎯 Evaluation decision:", evaluation.decision);
 
-      await updateLead(lead.id, {
-        status: "won",
-        matchType: decision.matchType || lead.matchType || "exact",
-      });
+    // ==== Send follow-up email back to dealer ====
+    if (followupEmail && followupEmail.body) {
+      console.log("📨 Sending follow-up email to dealer...");
 
-      // 2) Notify the customer (separately)
-      if (lead.email) {
-        const matchType =
-          decision.matchType || lead.matchType || "exact";
+      const dealsAddress = `deals+${leadId}@lotshoppr.com`;
 
-        const spec = `${lead.vehicle.year} ${lead.vehicle.make} ${lead.vehicle.model} ${lead.vehicle.trim}`;
-
-        const matchLine =
-          matchType === "similar"
-            ? `Note: the dealer's proposal is on a SIMILAR spec, not the exact build you originally requested. Please review details before you commit.`
-            : `This matches the spec you requested.`;
-
-        const bodyToCustomer = `
-Good news,
-
-A dealer has come back with numbers that meet the targets you set for:
-
-${spec}
-
-${matchLine}
-
-Check your email thread with them (from your address) or contact the store directly to confirm details and timing.
-
-– LotShoppr
-`.trim();
-
-        console.log("📨 Notifying customer of deal...");
-
+      try {
         await resend.emails.send({
-          from: "LotShoppr <deals@lotshoppr.com>",
-          to: lead.email,
-          subject: "LotShoppr: A dealer hit your numbers",
-          text: bodyToCustomer,
+          from: `LotShoppr <${dealsAddress}>`,
+          to: from,
+          subject: followupEmail.subject,
+          text: followupEmail.body,
+          reply_to: dealsAddress,
         });
+        console.log("✔ Follow-up email sent");
+      } catch (e) {
+        console.error("❌ Error sending follow-up email to dealer:", e);
       }
 
       await sleep(500);
     }
 
-    // NO_REPLY → do nothing, just return OK
+    // ==== If accepted, notify customer ====
+    if (evaluation.decision === "accept") {
+      console.log("✅ Deal accepted! (Customer notification would go here)");
+    }
+
     return res.json({ ok: true });
   } catch (err) {
     console.error("❌ Inbound handler error:", err);
