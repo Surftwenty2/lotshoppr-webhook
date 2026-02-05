@@ -5,10 +5,8 @@ console.log("⚡ LotShoppr: TALLY WEBHOOK HANDLER LOADED");
 const { Resend } = require("resend");
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-const {
-  createLeadFromForm,
-  saveLead,
-} = require("../lib/negotiation");
+// Backend URL (from env, default to local dev)
+const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:4000";
 
 // Sleep helper to avoid Resend rate limits
 function sleep(ms) {
@@ -191,7 +189,8 @@ module.exports = async (req, res) => {
 
     const formData = {
       firstName: getField(fields, "question_oMPMO5"),
-      color: getField(fields, "question_GdGd0Q"),
+        // Use Resend inbound-enabled address for dealer replies
+        const dealsAddress = `deals@deals.lotshoppr.com`;
       year: getField(fields, "question_O5250k"),
       make: getField(fields, "question_V5e58N"),
       model: getField(fields, "question_P5x50P"),
@@ -218,16 +217,67 @@ module.exports = async (req, res) => {
 
     console.log("Parsed Form Data:", formData);
 
-    // Create and store lead
-    const lead = createLeadFromForm(formData);
-    const dealerRecipients = getDealerRecipients();
-    lead.dealerEmails = dealerRecipients;
-    await saveLead(lead);
+    // ==== 1. Create lead in backend ====
+    console.log(`📌 Creating lead in backend (${BACKEND_URL}/api/leads)...`);
+              const dealerResult = await resend.emails.send({
+                from: `LotShoppr for ${formData.firstName || "Customer"} <deals@deals.lotshoppr.com>`,
+                to: dealerEmail,
+                subject,
+                text,
+                reply_to: "deals@deals.lotshoppr.com",
+              });
+    } else if (constraints.dealType === "lease") {
+      constraints.lease = {
+        miles: parseMiles(formData.leaseMiles),
+        months: parseInt(formData.leaseMonths) || null,
+        down: parseMoney(formData.leaseDown),
+        maxPayment: parseMoney(formData.leaseMaxPayment),
+      };
+    } else if (constraints.dealType === "finance") {
+      constraints.finance = {
+        months: parseInt(formData.financeMonths) || null,
+        down: parseMoney(formData.financeDown),
+        maxPayment: parseMoney(formData.financeMaxPayment),
+      };
+    }
 
-    // Per-lead email address for negotiation thread
-    const dealsAddress = `deals+${lead.id}@lotshoppr.com`;
+    let leadResponse;
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/leads`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          firstName: formData.firstName,
+          lastName: formData.lastName,
+          email: formData.email,
+          zip: formData.zip,
+          vehicle: {
+            year: parseInt(formData.year) || 0,
+            make: formData.make,
+            model: formData.model,
+            trim: formData.trim,
+            color: formData.color,
+            interior: formData.interior === "Light Interior" ? "light" : formData.interior === "Dark Interior" ? "dark" : "any",
+          },
+          constraints,
+        }),
+      });
 
-    // 1) Admin email
+      leadResponse = await response.json();
+      if (!response.ok) {
+        throw new Error(`Backend error: ${JSON.stringify(leadResponse)}`);
+      }
+    } catch (e) {
+      console.error("❌ Error creating lead in backend:", e);
+      return res.status(500).json({ ok: false, error: "backend_lead_creation_failed" });
+    }
+
+    const leadId = leadResponse.lead.id;
+    const dealsAddress = `deals+${leadId}@lotshoppr.com`;
+
+    console.log(`✔ Lead created with ID: ${leadId}`);
+
+    // ==== 2. Send admin email ====
     console.log("📨 Sending ADMIN email...");
     try {
       const adminResult = await resend.emails.send({
@@ -243,7 +293,8 @@ module.exports = async (req, res) => {
 
     await sleep(700);
 
-    // 2) Dealer initial email
+    // ==== 3. Send dealer initial emails ====
+    const dealerRecipients = getDealerRecipients();
     if (dealerRecipients.length > 0) {
       const subject = buildDealerSubject(formData);
       const text = buildDealerInitialBody(formData);
@@ -256,7 +307,6 @@ module.exports = async (req, res) => {
             to: dealerEmail,
             subject,
             text,
-            // Dealer replies go back to LotShoppr, not the customer:
             reply_to: dealsAddress,
           });
           console.log(
@@ -275,9 +325,26 @@ module.exports = async (req, res) => {
       console.log("⚠ No dealer recipients configured (DEALER_EMAILS env is empty).");
     }
 
-    return res.json({ ok: true, leadId: lead.id });
+    return res.json({ ok: true, leadId });
   } catch (err) {
     console.error("❌ Webhook error:", err);
     return res.status(500).json({ ok: false, error: "webhook_failure" });
   }
 };
+
+// ====== Helpers ======
+function parseMoney(input) {
+  if (!input) return null;
+  const cleaned = input.toString().replace(/[^0-9.]/g, "");
+  if (!cleaned) return null;
+  const n = Number(cleaned);
+  return Number.isNaN(n) ? null : n;
+}
+
+function parseMiles(input) {
+  if (!input) return null;
+  const cleaned = input.toString().replace(/[^0-9]/g, "");
+  if (!cleaned) return null;
+  const n = Number(cleaned);
+  return Number.isNaN(n) ? null : n;
+}
