@@ -297,7 +297,8 @@ module.exports = async (req, res) => {
       const text = buildDealerInitialBody(formData);
 
       for (const dealerEmail of dealerRecipients) {
-        console.log(`📨 Sending dealer email to ${dealerEmail}...`);
+        try {
+          console.log(`📨 Sending dealer email to ${dealerEmail}...`);
           const dealerResult = await resend.emails.send({
             from: `LotShoppr for ${formData.firstName || "Customer"} <${dealsAddress}>`,
             to: dealerEmail,
