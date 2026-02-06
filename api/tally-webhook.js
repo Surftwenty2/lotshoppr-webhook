@@ -164,13 +164,28 @@ function buildDealerSubject(form) {
   const make = form.make || "";
   const model = form.model || "";
   const trim = form.trim || "";
+  const dealType = form.dealType || "Pay Cash";
 
-  const subjects = [
-    `${year} ${make} ${model} ${trim} – quote request`,
-    `Quote on a ${year} ${make} ${model}`,
-    `Checking numbers on a ${year} ${make} ${model}`,
-    `OTD pricing on a ${year} ${make} ${model}?`,
-  ];
+  let subjects = [];
+  if (dealType === "Lease") {
+    subjects = [
+      `${year} ${make} ${model} ${trim} – lease inquiry`,
+      `Lease request for a ${year} ${make} ${model}`,
+      `Checking lease numbers on a ${year} ${make} ${model}`,
+    ];
+  } else if (dealType === "Finance") {
+    subjects = [
+      `${year} ${make} ${model} ${trim} – finance inquiry`,
+      `Finance request for a ${year} ${make} ${model}`,
+      `Checking finance numbers on a ${year} ${make} ${model}`,
+    ];
+  } else {
+    subjects = [
+      `${year} ${make} ${model} ${trim} – quote request`,
+      `Quote on a ${year} ${make} ${model}`,
+      `Checking cash price on a ${year} ${make} ${model}`,
+    ];
+  }
   return subjects[Math.floor(Math.random() * subjects.length)];
 }
 
@@ -193,6 +208,7 @@ module.exports = async (req, res) => {
       make: getField(fields, "question_V5e58N"),
       model: getField(fields, "question_P5x50P"),
       trim: getField(fields, "question_EQRQ0A"),
+      color: getField(fields, "question_rA4AEF"),
       interior: getField(fields, "question_rA4AEp"),
 
       dealType: getField(fields, "question_4x6xjd"),

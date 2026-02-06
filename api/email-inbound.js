@@ -164,6 +164,7 @@ module.exports = async (req, res) => {
 
     const evaluation = backendResponse.evaluation;
     const followupEmail = backendResponse.followupEmail;
+    const originalMessageId = backendResponse.messageId; // Retrieve original messageId from backend response
 
     console.log("🎯 Evaluation decision:", evaluation.decision);
 
@@ -182,6 +183,12 @@ module.exports = async (req, res) => {
           subject: followupEmail.subject,
           text: followupEmail.body,
           reply_to: dealsAddress,
+          headers: {
+            ...(originalMessageId && {
+              "In-Reply-To": originalMessageId,
+              "References": originalMessageId,
+            }),
+          },
         });
         console.log("✔ Follow-up email sent");
       } catch (e) {
