@@ -41,7 +41,21 @@ module.exports = async (req, res) => {
     const toRaw = Array.isArray(data.to) ? data.to[0] : data.to;
     const from = data.from;
     const subject = data.subject || "";
-    const text = data.text || data.html || "";
+
+    // Try to extract the email body from all possible fields
+    let text = "";
+    if (typeof data.text === "string" && data.text.trim()) {
+      text = data.text;
+    } else if (typeof data.html === "string" && data.html.trim()) {
+      text = data.html;
+    } else if (typeof data.body === "string" && data.body.trim()) {
+      text = data.body;
+    } else if (typeof data.content === "string" && data.content.trim()) {
+      text = data.content;
+    } else {
+      // Log all keys for debugging if body is missing
+      console.error("[ERROR] No email body found in inbound.data. Keys:", Object.keys(data));
+    }
 
     // Debug: log the full inbound payload and extracted fields
     console.log("[DEBUG] Full inbound payload:", JSON.stringify(inbound, null, 2));
