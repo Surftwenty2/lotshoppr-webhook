@@ -43,7 +43,13 @@ module.exports = async (req, res) => {
     const subject = data.subject || "";
     const text = data.text || data.html || "";
 
-    console.log("Inbound email:", { toRaw, from, subject });
+    // Debug: log the full inbound payload and extracted fields
+    console.log("[DEBUG] Full inbound payload:", JSON.stringify(inbound, null, 2));
+    console.log("[DEBUG] Extracted toRaw:", toRaw);
+    // Defensive: Extract leadId from plus-address
+    const match = String(toRaw).match(/deals\+([^@]+)@/i);
+    const leadId = match ? match[1] : null;
+    console.log("[DEBUG] Extracted leadId:", leadId);
 
 
     // Defensive: Ensure 'to' address exists
