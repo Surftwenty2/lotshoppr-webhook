@@ -16,6 +16,14 @@ function sleep(ms) {
 // NOTE: This handler assumes your email provider POSTs a JSON body
 // with at least { to, from, subject, text }.
 // Adjust mapping based on your provider’s actual payload.
+//
+// Negotiation flow:
+// 1. Receives inbound dealer email via Resend webhook POST.
+// 2. Extracts leadId from plus-address (deals+<leadId>@...)
+// 3. Forwards dealer reply to backend /api/leads/:leadId/dealer-reply
+// 4. Backend parses, evaluates, and generates follow-up email (accept/counter/clarify/reject)
+// 5. Sends follow-up email to dealer if needed
+// 6. Logs and notifies as appropriate
 module.exports = async (req, res) => {
   console.log("⚡ LotShoppr: EMAIL INBOUND INVOKED");
 
@@ -36,11 +44,15 @@ module.exports = async (req, res) => {
 
     console.log("Inbound email:", { toRaw, from, subject });
 
+
+    // Defensive: Ensure 'to' address exists
     if (!toRaw) {
       console.error("No 'to' address on inbound email");
       return res.json({ ok: true });
     }
 
+
+    // Defensive: Extract leadId from plus-address
     const match = String(toRaw).match(/deals\+([^@]+)@/i);
     if (!match) {
       console.error("Could not extract leadId from:", toRaw);
@@ -50,8 +62,11 @@ module.exports = async (req, res) => {
     const leadId = match[1];
     console.log("Extracted leadId:", leadId);
 
+
     // ==== Call backend to evaluate offer ====
+    // This POST triggers the negotiation logic in the backend
     console.log(`📌 Sending dealer reply to backend for evaluation...`);
+
 
     let backendResponse;
     try {
@@ -59,7 +74,7 @@ module.exports = async (req, res) => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          dealerId: from,
+          dealerId: from, // Use dealer's email as ID
           from,
           subject,
           text,
@@ -71,6 +86,7 @@ module.exports = async (req, res) => {
         throw new Error(`Backend error: ${JSON.stringify(backendResponse)}`);
       }
     } catch (e) {
+      // If backend fails, log and exit gracefully
       console.error("❌ Error calling backend for evaluation:", e);
       return res.json({ ok: true, error: "backend_evaluation_failed" });
     }
@@ -80,7 +96,9 @@ module.exports = async (req, res) => {
 
     console.log("🎯 Evaluation decision:", evaluation.decision);
 
+
     // ==== Send follow-up email back to dealer ====
+    // Only send if backend provided a follow-up message
     if (followupEmail && followupEmail.body) {
       console.log("📨 Sending follow-up email to dealer...");
 
@@ -96,13 +114,15 @@ module.exports = async (req, res) => {
         });
         console.log("✔ Follow-up email sent");
       } catch (e) {
+        // Log any email sending errors
         console.error("❌ Error sending follow-up email to dealer:", e);
       }
 
-      await sleep(500);
+      await sleep(500); // Prevent rapid-fire emails
     }
 
-    // ==== If accepted, notify customer ====
+
+    // ==== If accepted, notify customer (future work) ====
     if (evaluation.decision === "accept") {
       console.log("✅ Deal accepted! (Customer notification would go here)");
     }
