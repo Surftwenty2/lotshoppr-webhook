@@ -202,6 +202,9 @@ module.exports = async (req, res) => {
     const payload = req.body;
     const fields = payload?.data?.fields || [];
 
+    // Debug: Log all incoming field keys to verify field IDs
+    console.log("🔍 All incoming Tally fields:", fields.map(f => ({ key: f.key, value: f.value, label: f.label })));
+
     const formData = {
       firstName: getField(fields, "question_oMPMO5"),
       year: getField(fields, "question_O5250k"),
@@ -229,7 +232,7 @@ module.exports = async (req, res) => {
       zip: getField(fields, "question_rA4AEX"),
     };
 
-    console.log("Parsed Form Data:", formData);
+    console.log("✅ Parsed Form Data:", JSON.stringify(formData, null, 2));
 
     // ==== 1. Create lead in backend ====
     console.log(`📌 Creating lead in backend (${BACKEND_URL}/api/leads)...`);
