@@ -53,8 +53,28 @@ module.exports = async (req, res) => {
     } else if (typeof data.content === "string" && data.content.trim()) {
       text = data.content;
     } else {
-      // Log all keys for debugging if body is missing
-      console.error("[ERROR] No email body found in inbound.data. Keys:", Object.keys(data));
+      // If body is missing, try to fetch the full email from Resend using email_id
+      const emailId = data.email_id;
+      if (emailId) {
+        try {
+          // Use the Resend SDK to fetch the full email
+          const emailResult = await resend.emails.get(emailId);
+          if (emailResult && emailResult.text) {
+            text = emailResult.text;
+            console.log("[INFO] Fetched email body from Resend API (text)");
+          } else if (emailResult && emailResult.html) {
+            text = emailResult.html;
+            console.log("[INFO] Fetched email body from Resend API (html)");
+          } else {
+            console.error("[ERROR] No body found in fetched email from Resend API", emailResult);
+          }
+        } catch (fetchErr) {
+          console.error("[ERROR] Failed to fetch email body from Resend API", fetchErr);
+        }
+      } else {
+        // Log all keys for debugging if body is missing
+        console.error("[ERROR] No email body found in inbound.data. Keys:", Object.keys(data));
+      }
     }
 
     // Debug: log the full inbound payload and extracted fields
