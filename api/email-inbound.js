@@ -27,6 +27,7 @@ function sleep(ms) {
 module.exports = async (req, res) => {
   console.log("⚡ LotShoppr: EMAIL INBOUND INVOKED");
 
+
   try {
     if (req.method !== "POST") {
       return res
@@ -35,12 +36,12 @@ module.exports = async (req, res) => {
     }
 
     const inbound = req.body || {};
-    // You will need to confirm these property names from your provider:
-    // e.g., inbound.to = "deals+<leadId>@lotshoppr.com"
-    const toRaw = Array.isArray(inbound.to) ? inbound.to[0] : inbound.to;
-    const from = inbound.from;
-    const subject = inbound.subject || "";
-    const text = inbound.text || inbound.html || "";
+    // For Resend, the actual email data is under inbound.data
+    const data = inbound.data || {};
+    const toRaw = Array.isArray(data.to) ? data.to[0] : data.to;
+    const from = data.from;
+    const subject = data.subject || "";
+    const text = data.text || data.html || "";
 
     console.log("Inbound email:", { toRaw, from, subject });
 
