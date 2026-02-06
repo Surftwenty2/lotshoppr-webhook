@@ -301,7 +301,7 @@ module.exports = async (req, res) => {
         try {
           console.log(`📨 Sending dealer email to ${dealerEmail}...`);
           const dealerResult = await resend.emails.send({
-            from: `LotShoppr for ${formData.firstName || "Customer"} <${dealsAddress}>`,
+            from: `LotShoppr <${dealsAddress}>`,
             to: dealerEmail,
             subject,
             text,
