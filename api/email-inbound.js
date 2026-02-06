@@ -2,6 +2,15 @@
 
 console.log("⚡ LotShoppr: EMAIL INBOUND HANDLER LOADED");
 
+
+// Ensure fetch is available in Node.js (for Vercel and local)
+let fetchFn;
+try {
+  fetchFn = fetch;
+} catch (e) {
+  fetchFn = require("node-fetch");
+}
+
 const { Resend } = require("resend");
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -59,10 +68,27 @@ module.exports = async (req, res) => {
         let emailResult = null;
         let fetchErr = null;
         // Try up to 3 times with 500ms delay between attempts
+        const fetchInboundEmail = async (id) => {
+          // Try SDK method if available
+          if (resend.emails && resend.emails.receiving && typeof resend.emails.receiving.get === 'function') {
+            return await resend.emails.receiving.get(id);
+          }
+          // Fallback: direct HTTP request
+          const apiKey = process.env.RESEND_API_KEY;
+          const resp = await fetchFn(`https://api.resend.com/emails/receiving/${id}`, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${apiKey}`,
+              'Accept': 'application/json',
+            },
+          });
+          if (!resp.ok) throw new Error(`Resend API error: ${resp.status}`);
+          return await resp.json();
+        };
+
         for (let attempt = 1; attempt <= 3; attempt++) {
           try {
-            // Use the correct method for inbound emails
-            emailResult = await resend.emails.receiving.get(emailId);
+            emailResult = await fetchInboundEmail(emailId);
             if (emailResult && (emailResult.text || emailResult.html)) {
               break;
             }
@@ -115,7 +141,7 @@ module.exports = async (req, res) => {
 
     let backendResponse;
     try {
-      const dealerResponse = await fetch(`${BACKEND_URL}/api/leads/${leadId}/dealer-reply`, {
+      const dealerResponse = await fetchFn(`${BACKEND_URL}/api/leads/${leadId}/dealer-reply`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
