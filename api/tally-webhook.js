@@ -271,7 +271,7 @@ module.exports = async (req, res) => {
     }
 
     const leadId = leadResponse.lead.id;
-    const dealsAddress = `deals+${leadId}@lotshoppr.com`;
+    const dealsAddress = `deals+${leadId}@deals.lotshoppr.com`;
 
     console.log(`✔ Lead created with ID: ${leadId}`);
 
