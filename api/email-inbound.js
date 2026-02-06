@@ -174,7 +174,7 @@ module.exports = async (req, res) => {
     if (followupEmail && followupEmail.body) {
       console.log("📨 Sending follow-up email to dealer...");
 
-      const dealsAddress = `deals+${leadId}@lotshoppr.com`;
+      const dealsAddress = `deals+${leadId}@deals.lotshoppr.com`;
 
       try {
         await resend.emails.send({
